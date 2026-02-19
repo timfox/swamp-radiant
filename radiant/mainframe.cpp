@@ -26,6 +26,7 @@
 //
 
 #include "mainframe.h"
+#include "generic/callback.h"
 
 #include "debugging/debugging.h"
 #include "version.h"
@@ -117,6 +118,9 @@
 #include "colors.h"
 #include "tools.h"
 #include "filterbar.h"
+
+void GamePacksPath_importString( const char* value );
+void GamePacksPath_exportString( const StringImportCallback& importer );
 
 
 // VFS
@@ -377,6 +381,25 @@ const char* SettingsPath_get(){
 	return g_strSettingsPath.c_str();
 }
 
+CopiedString g_strGamePacksPath;
+const char* GamePacksPath_get(){
+	return g_strGamePacksPath.c_str();
+}
+
+void GamePacksPath_setDefault(){
+	g_strGamePacksPath = StringStream( g_strAppPath, "gamepacks/" );
+}
+
+void GamePacksPath_set( const char* path ){
+	if ( string_empty( path ) ) {
+		GamePacksPath_setDefault();
+		return;
+	}
+	StringOutputStream stream( 256 );
+	stream << DirectoryCleaned( path );
+	g_strGamePacksPath = stream.c_str();
+}
+
 
 /*!
    points to the game tools directory, for instance
@@ -398,6 +421,10 @@ void Paths_constructPreferences( PreferencesPage& page ){
 	page.appendPathEntry( "Engine Path", true,
 	                      StringImportCallback( EnginePathImportCaller( g_strEnginePath ) ),
 	                      StringExportCallback( StringExportCaller( g_strEnginePath ) )
+	                    );
+	page.appendPathEntry( "Gamepacks Path", true,
+	                      StringImportCallback( FreeCaller<void(const char*), GamePacksPath_importString>() ),
+	                      StringExportCallback( FreeCaller<void(const StringImportCallback&), GamePacksPath_exportString>() )
 	                    );
 }
 void Paths_constructPage( PreferenceGroup& group ){

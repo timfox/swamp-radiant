@@ -251,6 +251,7 @@ void paths_init(){
 
 	// we will set this right after the game selection is done
 	g_strGameToolsPath = g_strAppPath;
+	GamePacksPath_setDefault();
 }
 
 bool check_version_file( const char* filename, const char* version ){

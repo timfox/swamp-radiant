@@ -1,4 +1,4 @@
-﻿/*
+/*
    Copyright (C) 1999-2006 Id Software, Inc. and contributors.
    For a list of contributors, see the accompanying CONTRIBUTORS file.
 
@@ -64,6 +64,16 @@ void Interface_constructPreferences( PreferencesPage& page ){
 	page.appendPathEntry( "Shader Editor Command", g_TextEditor_editorCommand, false );
 }
 
+void GamePacksPath_importString( const char* value ){
+	GamePacksPath_set( value );
+}
+typedef FreeCaller<void(const char*), GamePacksPath_importString> GamePacksPathImportCaller;
+
+void GamePacksPath_exportString( const StringImportCallback& importer ){
+	importer( GamePacksPath_get() );
+}
+typedef FreeCaller<void(const StringImportCallback&), GamePacksPath_exportString> GamePacksPathExportCaller;
+
 /*!
    =========================================================
    Games selection dialog
@@ -95,7 +105,7 @@ CGameDescription::CGameDescription( xmlDocPtr pDoc, const CopiedString& gameFile
 		m_gameDescription.insert( GameDescription::value_type( xmlAttr_getName( attr ), xmlAttr_getValue( attr ) ) );
 	}
 
-	mGameToolsPath = StringStream( AppPath_get(), "gamepacks/", gameFile, '/' );
+	mGameToolsPath = StringStream( GamePacksPath_get(), gameFile, '/' );
 
 	ASSERT_MESSAGE( file_exists( mGameToolsPath.c_str() ), "game directory not found: " << Quoted( mGameToolsPath ) );
 
@@ -181,9 +191,9 @@ bool Preferences_Save_Safe( PreferenceDictionary& preferences, const char* filen
 void RegisterGlobalPreferences( PreferenceSystem& preferences ){
 	preferences.registerPreference( "gamefile", makeCopiedStringStringImportCallback( LatchedAssignCaller( g_GamesDialog.m_sGameFile ) ), CopiedStringExportStringCaller( g_GamesDialog.m_sGameFile.m_latched ) );
 	preferences.registerPreference( "gamePrompt", BoolImportStringCaller( g_GamesDialog.m_bGamePrompt ), BoolExportStringCaller( g_GamesDialog.m_bGamePrompt ) );
+	preferences.registerPreference( "gamepacksPath", StringImportCallback( GamePacksPathImportCaller() ), StringExportCallback( GamePacksPathExportCaller() ) );
 	theme_registerGlobalPreference( preferences );
 }
-
 
 PreferenceDictionary g_global_preferences;
 
@@ -294,7 +304,7 @@ void CGameDialog::BuildDialog(){
 }
 
 void CGameDialog::ScanForGames(){
-	const auto path = StringStream( AppPath_get(), "gamepacks/games/" );
+	const auto path = StringStream( GamePacksPath_get(), "games/" );
 
 	globalOutputStream() << "Scanning for game description files: " << path << '\n';
 

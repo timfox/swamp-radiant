@@ -195,6 +195,11 @@ const char* const g_modulesDir = "modules/"; ///< name of modules directory, alw
 extern CopiedString g_strGameToolsPath;
 const char* GameToolsPath_get();
 
+extern CopiedString g_strGamePacksPath;
+const char* GamePacksPath_get();
+void GamePacksPath_setDefault();
+void GamePacksPath_set( const char* path );
+
 void Radiant_Initialise();
 void Radiant_Shutdown();
 
