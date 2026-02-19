@@ -1,0 +1,233 @@
+/* -----------------------------------------------------------------------------
+   ABOUT: Light Qt Style Sheet for NetRadiant.
+   FILE: light.qss
+   VERSION: 1.1
+   DATE: 2026-02-20
+   THEME: Uses the provided Light EStyleColor palette.
+----------------------------------------------------------------------------- */
+
+/* color sources:
+ * Background: rgb(194,194,194)
+ * Panel / secondary backgrounds: rgb(235,235,235)
+ * Borders: rgb(117,117,117)
+ * Text: rgb(4,4,4)
+ * Inputs: rgb(255,255,255) with borders in rgb(69,69,69)
+ * Highlights: rgb(0,41,190) / rgb(0,60,255)
+ */
+
+QWidget {
+    background-color: rgb(194,194,194);
+    color: rgb(4,4,4);
+}
+QWidget:disabled {
+    color: rgb(125,125,125);
+}
+
+QToolTip {
+    background-color: rgb(16,18,20);
+    color: rgb(255,255,255);
+    border: 1px solid rgb(117,117,117);
+    padding: 3px 6px;
+}
+
+QMenuBar,
+QMenuBar::item,
+QMenu {
+    background-color: rgb(235,235,235);
+    color: rgb(4,4,4);
+    border: 1px solid rgb(117,117,117);
+    padding: 3px 6px;
+}
+QMenuBar::item:selected,
+QMenu::item:selected {
+    background-color: rgb(0,41,190);
+    color: rgb(255,255,255);
+}
+QMenu::separator {
+    height: 1px;
+    margin: 6px 10px;
+    background-color: rgb(117,117,117);
+}
+
+QToolBar {
+    background-color: rgb(138,138,138);
+    border: 1px solid rgb(117,117,117);
+    spacing: 2px;
+}
+QToolBar::separator {
+    background-color: rgb(117,117,117);
+    width: 1px;
+    margin: 4px 6px;
+}
+QToolBar QToolButton {
+    background-color: rgb(178,178,178);
+    border: 1px solid transparent;
+    margin: 0;
+    padding: 3px 6px;
+    color: rgb(4,4,4);
+}
+QToolBar QToolButton:hover {
+    background-color: rgb(58,58,58);
+    color: rgb(255,255,255);
+}
+QToolBar QToolButton:pressed,
+QToolBar QToolButton:on {
+    background-color: rgb(0,20,90);
+    color: rgb(255,255,255);
+    border-color: rgb(62,78,104);
+}
+
+QPushButton {
+    background-color: rgb(235,235,235);
+    border: 1px solid rgb(117,117,117);
+    padding: 3px 10px;
+    color: rgb(4,4,4);
+}
+QPushButton:hover {
+    background-color: rgb(58,58,58);
+    border-color: rgb(62,78,104);
+    color: rgb(255,255,255);
+}
+QPushButton:pressed {
+    background-color: rgb(0,20,90);
+    border-color: rgb(0,41,190);
+    color: rgb(255,255,255);
+}
+QPushButton:disabled {
+    background-color: rgb(194,194,194);
+    color: rgb(125,125,125);
+}
+QPushButton:default {
+    background-color: rgb(5,127,255);
+    color: rgb(255,255,255);
+    border-color: rgb(0,41,190);
+}
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+    background-color: rgb(255,255,255);
+    border: 1px solid rgb(69,69,69);
+    padding: 3px 5px;
+    selection-background-color: rgb(0,41,190);
+    selection-color: rgb(255,255,255);
+}
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus,
+QComboBox:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border-color: rgb(0,41,190);
+}
+QComboBox::drop-down {
+    border-left: 1px solid rgb(69,69,69);
+}
+QComboBox::down-arrow {
+    width: 10px;
+    height: 10px;
+    color: rgb(4,4,4);
+}
+
+QAbstractItemView {
+    background-color: rgb(255,255,255);
+    alternate-background-color: rgb(178,178,178);
+    selection-background-color: rgb(0,41,190);
+    selection-color: rgb(255,255,255);
+    gridline-color: rgb(117,117,117);
+}
+QAbstractItemView:disabled {
+    selection-background-color: rgb(13,40,78);
+}
+QTreeView::item:hover,
+QTableView::item:hover {
+    background-color: rgb(142,142,142);
+}
+
+QHeaderView::section {
+    background-color: rgb(108,108,108);
+    color: rgb(255,255,255);
+    padding: 4px;
+    border: 1px solid rgb(117,117,117);
+}
+
+QTabBar::tab {
+    background-color: rgb(235,235,235);
+    border: 1px solid rgb(117,117,117);
+    padding: 4px 9px;
+    margin-right: -1px;
+}
+QTabBar::tab:selected {
+    background-color: rgb(255,255,255);
+    border-bottom-color: rgb(255,255,255);
+}
+
+QScrollBar:vertical {
+    background: rgb(235,235,235);
+    width: 9px;
+    margin: 3px 0;
+}
+QScrollBar::handle:vertical {
+    background: rgb(178,178,178);
+    border: 1px solid rgb(117,117,117);
+    min-height: 22px;
+}
+QScrollBar::handle:vertical:hover {
+    background: rgb(142,142,142);
+}
+QScrollBar:horizontal {
+    background: rgb(235,235,235);
+    height: 9px;
+    margin: 0 3px;
+}
+QScrollBar::handle:horizontal {
+    background: rgb(178,178,178);
+    border: 1px solid rgb(117,117,117);
+    min-width: 22px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: rgb(142,142,142);
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    height: 0;
+    background: none;
+}
+
+QProgressBar {
+    border: 1px solid rgb(117,117,117);
+    background-color: rgb(178,178,178);
+    color: rgb(4,4,4);
+    text-align: center;
+}
+QProgressBar::chunk {
+    background-color: rgb(5,127,255);
+}
+
+QSplitter::handle {
+    background-color: rgb(117,117,117);
+}
+
+QStatusBar {
+    background-color: rgb(138,138,138);
+    border-top: 1px solid rgb(117,117,117);
+    color: rgb(4,4,4);
+}
+
+QCheckBox::indicator,
+QRadioButton::indicator {
+    border: 1px solid rgb(117,117,117);
+    background-color: rgb(255,255,255);
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:checked,
+QRadioButton::indicator:checked {
+    background-color: rgb(5,127,255);
+    border-color: rgb(5,127,255);
+}

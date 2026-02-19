@@ -1,0 +1,220 @@
+/* -----------------------------------------------------------------------------
+   ABOUT: Vaporwave Qt Style Sheet for NetRadiant.
+   FILE: vaporwave.qss
+   VERSION: 1.0
+   DATE: 2026-02-25
+   THEME: Applies the Vaporwave color palette provided via EStyleColor values.
+----------------------------------------------------------------------------- */
+
+QWidget {
+    background-color: rgb(3,4,8);
+    color: rgb(158,158,158);
+}
+QWidget:disabled {
+    color: rgb(54,38,54);
+}
+
+QToolTip {
+    background-color: rgb(255,183,3);
+    color: rgb(3,4,8);
+    border: 1px solid rgb(18,18,18);
+    padding: 4px 6px;
+}
+
+QMenuBar,
+QMenuBar::item,
+QMenu {
+    background-color: rgb(3,4,8);
+    color: rgb(255,255,255);
+    border: 1px solid rgb(18,18,18);
+    padding: 3px 6px;
+}
+QMenuBar::item:selected,
+QMenu::item:selected {
+    background-color: rgb(0,41,190);
+    color: rgb(255,255,255);
+}
+QMenu::separator {
+    height: 1px;
+    margin: 5px 10px;
+    background-color: rgb(18,18,18);
+}
+
+QToolBar {
+    background-color: rgb(3,4,8);
+    border: 1px solid rgb(18,18,18);
+    spacing: 2px;
+}
+QToolBar::separator {
+    background-color: rgb(18,18,18);
+    width: 1px;
+    margin: 4px 6px;
+}
+QToolBar QToolButton {
+    background-color: rgb(3,4,8);
+    border: 1px solid transparent;
+    padding: 3px 6px;
+    color: rgb(158,158,158);
+}
+QToolBar QToolButton:hover {
+    background-color: rgb(5,127,255);
+    color: rgb(3,4,8);
+}
+QToolBar QToolButton:pressed,
+QToolBar QToolButton:on {
+    background-color: rgb(1,61,255);
+    color: rgb(255,255,255);
+    border-color: rgb(12,35,108);
+}
+
+QPushButton {
+    background-color: rgb(3,4,8);
+    border: 1px solid rgb(18,18,18);
+    padding: 3px 10px;
+    color: rgb(158,158,158);
+}
+QPushButton:hover {
+    background-color: rgb(111,15,117);
+    border-color: rgb(111,15,117);
+    color: rgb(255,255,255);
+}
+QPushButton:pressed {
+    background-color: rgb(67,21,69);
+    border-color: rgb(67,21,69);
+    color: rgb(255,255,255);
+}
+QPushButton:disabled {
+    background-color: rgb(3,4,8);
+    color: rgb(54,38,54);
+}
+QPushButton:default {
+    background-color: rgb(0,41,190);
+    border-color: rgb(12,35,108);
+    color: rgb(255,255,255);
+}
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+    background-color: rgb(3,4,8);
+    border: 1px solid rgb(43,44,61);
+    padding: 4px 6px;
+    selection-background-color: rgb(111,15,117);
+    selection-color: rgb(255,255,255);
+}
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus,
+QComboBox:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border-color: rgb(255,183,3);
+}
+QComboBox::drop-down {
+    border-left: 1px solid rgb(18,18,18);
+}
+QComboBox::down-arrow {
+    width: 10px;
+    height: 10px;
+    color: rgb(158,158,158);
+}
+
+QAbstractItemView {
+    background-color: rgb(3,4,8);
+    alternate-background-color: rgb(16,18,40);
+    selection-background-color: rgb(111,15,117);
+    selection-color: rgb(255,255,255);
+    gridline-color: rgb(18,18,18);
+}
+QTreeView::item:hover,
+QTableView::item:hover {
+    background-color: rgb(55,55,55);
+}
+
+QHeaderView::section {
+    background-color: rgb(2,2,5);
+    color: rgb(255,255,255);
+    padding: 4px;
+    border: 1px solid rgb(18,18,18);
+}
+
+QTabBar::tab {
+    background-color: rgb(3,4,8);
+    border: 1px solid rgb(18,18,18);
+    padding: 4px 10px;
+    margin-right: -1px;
+}
+QTabBar::tab:selected {
+    background-color: rgb(0,41,190);
+    border-bottom-color: rgb(0,41,190);
+}
+
+QScrollBar:vertical {
+    background: rgb(3,4,8);
+    width: 9px;
+    margin: 4px 0;
+}
+QScrollBar::handle:vertical {
+    background: rgb(43,44,61);
+    border: 1px solid rgb(3,4,8);
+    min-height: 22px;
+}
+QScrollBar::handle:vertical:hover {
+    background: rgb(67,21,69);
+}
+QScrollBar:horizontal {
+    background: rgb(3,4,8);
+    height: 9px;
+    margin: 0 4px;
+}
+QScrollBar::handle:horizontal {
+    background: rgb(43,44,61);
+    border: 1px solid rgb(3,4,8);
+    min-width: 22px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: rgb(67,21,69);
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    height: 0;
+    background: none;
+}
+
+QProgressBar {
+    border: 1px solid rgb(18,18,18);
+    background-color: rgb(11,12,27);
+    color: rgb(255,255,255);
+    text-align: center;
+}
+QProgressBar::chunk {
+    background-color: rgb(0,41,190);
+}
+
+QSplitter::handle {
+    background-color: rgb(18,18,18);
+}
+
+QStatusBar {
+    background-color: rgb(3,4,8);
+    border-top: 1px solid rgb(18,18,18);
+    color: rgb(255,255,255);
+}
+
+QCheckBox::indicator,
+QRadioButton::indicator {
+    border: 1px solid rgb(18,18,18);
+    background-color: rgb(3,4,8);
+    width: 14px;
+    height: 14px;
+}
+QCheckBox::indicator:checked,
+QRadioButton::indicator:checked {
+    background-color: rgb(111,15,117);
+    border-color: rgb(111,15,117);
+}
