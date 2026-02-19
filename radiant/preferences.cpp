@@ -304,33 +304,47 @@ void CGameDialog::BuildDialog(){
 }
 
 void CGameDialog::ScanForGames(){
-	const auto path = StringStream( GamePacksPath_get(), "games/" );
+	const char *const suffixes[] = { "games/", "" };
+	bool scanned = false;
 
-	globalOutputStream() << "Scanning for game description files: " << path << '\n';
-
-	/*!
-	   \todo FIXME LINUX:
-	   do we put game description files below AppPath, or in ~/.radiant
-	   i.e. read only or read/write?
-	   my guess .. readonly cause it's an install
-	   we will probably want to add ~/.radiant/<version>/games/ scanning on top of that for developers
-	   (if that's really needed)
-	 */
-
-	Directory_forEach( path, matchFileExtension( "game", [&]( const char *name ){
-		const auto strPath = StringStream( path, name );
-		globalOutputStream() << strPath << '\n';
-
-		xmlDocPtr pDoc = xmlParseFile( strPath );
-		if ( pDoc ) {
-			mGames.push_back( new CGameDescription( pDoc, name ) );
-			xmlFreeDoc( pDoc );
+	for ( const char *suffix : suffixes )
+	{
+		const auto path = suffix[0]? StringStream( GamePacksPath_get(), suffix ) : StringStream( GamePacksPath_get(), "" );
+		if ( path.empty() ) {
+			continue;
 		}
-		else
-		{
-			globalErrorStream() << "XML parser failed on " << SingleQuoted( strPath ) << '\n';
+
+		if ( !file_is_directory( path.c_str() ) ) {
+			globalWarningStream() << "gamepacks path is not a directory: " << Quoted( path ) << '\n';
+			continue;
 		}
-	}));
+
+		scanned = true;
+		globalOutputStream() << "Scanning for game description files: " << path << '\n';
+
+		Directory_forEach( path, matchFileExtension( "game", [&]( const char *name ){
+			const auto strPath = StringStream( path, name );
+			globalOutputStream() << strPath << '\n';
+
+			xmlDocPtr pDoc = xmlParseFile( strPath );
+			if ( pDoc ) {
+				mGames.push_back( new CGameDescription( pDoc, name ) );
+				xmlFreeDoc( pDoc );
+			}
+			else
+			{
+				globalErrorStream() << "XML parser failed on " << SingleQuoted( strPath ) << '\n';
+			}
+		}));
+
+		if ( !mGames.empty() ) {
+			break;
+		}
+	}
+
+	if ( !scanned ) {
+		globalErrorStream() << "No gamepacks directories found for " << Quoted( GamePacksPath_get() ) << '\n';
+	}
 }
 
 void CGameDialog::InitGlobalPrefPath(){
