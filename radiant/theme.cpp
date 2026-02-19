@@ -196,7 +196,6 @@ void theme_set( ETheme theme ){
 		const QColor secondary = rgb( 0.156250, 0.130678, 0.022386 );
 		const QColor border = rgb( 0.201556, 0.201556, 0.198069 );
 		const QColor inputOutline = rgb( 0.021219, 0.027321, 0.015996 );
-		const QColor hover = rgb( 0.545724, 0.456411, 0.078187 );
 		const QColor hover2 = rgb( 0.234375, 0.196017, 0.033579 );
 		const QColor text = rgb( 0.527115, 0.527115, 0.527115 );
 		const QColor disabledText = rgb( 0.083333, 0.069695, 0.011939 );
@@ -220,7 +219,7 @@ void theme_set( ETheme theme ){
 		steamPalette.setColor( QPalette::HighlightedText, highlightText );
 		steamPalette.setColor( QPalette::Light, header );
 		steamPalette.setColor( QPalette::Mid, border );
-		steamPalette.setColor( QPalette::Midlight, hover );
+		steamPalette.setColor( QPalette::Midlight, hover2 );
 		steamPalette.setColor( QPalette::Shadow, inputOutline );
 		steamPalette.setColor( QPalette::Disabled, QPalette::WindowText, disabledText );
 		steamPalette.setColor( QPalette::Disabled, QPalette::Text, disabledText );
@@ -249,7 +248,6 @@ void theme_set( ETheme theme ){
 		const QColor hover2 = rgb( 0.215861, 0.215861, 0.215861 );
 		const QColor highlight = rgb( 0.000000, 0.162029, 0.745404 );
 		const QColor text = rgb( 0.619792, 0.619792, 0.619792 );
-		const QColor select = rgb( 0.437188, 0.057292, 0.458333 );
 		const QColor selectParent = rgb( 0.135916, 0.051270, 0.140625 );
 		const QColor selectHover = rgb( 0.260867, 0.081814, 0.270833 );
 		const QColor accentBlue = rgb( 0.019382, 0.496933, 1.000000 );
@@ -295,6 +293,7 @@ void theme_set( ETheme theme ){
 		const QColor header = rgb( 0.040000, 0.040000, 0.040000 );
 		const QColor hover = rgb( 0.099899, 0.099899, 0.099899 );
 		const QColor hover2 = rgb( 0.266356, 0.266356, 0.266356 );
+		const QColor selectParent = rgb( 0.050000, 0.050000, 0.050000 );
 		const QColor text = rgb( 0.527115, 0.527115, 0.527115 );
 		const QColor select = rgb( 0.219999, 0.300000, 0.180000 );
 		const QColor selectInactive = rgb( 0.146666, 0.200000, 0.120000 );
@@ -323,6 +322,7 @@ void theme_set( ETheme theme ){
 		greyPalette.setColor( QPalette::Disabled, QPalette::Text, disabledText );
 		greyPalette.setColor( QPalette::Disabled, QPalette::ButtonText, disabledText );
 		greyPalette.setColor( QPalette::Disabled, QPalette::Highlight, selectInactive );
+		greyPalette.setColor( QPalette::Disabled, QPalette::Mid, selectParent );
 		greyPalette.setColor( QPalette::Inactive, QPalette::Highlight, selectInactive );
 		greyPalette.setColor( QPalette::Inactive, QPalette::HighlightedText, QColor::fromRgbF( 1.0, 1.0, 1.0 ) );
 		qApp->setPalette( greyPalette );
@@ -341,9 +341,7 @@ void theme_set( ETheme theme ){
 		const QColor header = rgb( 0.054480, 0.054480, 0.054480 );
 		const QColor hover = rgb( 0.099899, 0.099899, 0.099899 );
 		const QColor hover2 = rgb( 0.266356, 0.266356, 0.266356 );
-		const QColor secondary = rgb( 0.054480, 0.054480, 0.054480 );
 		const QColor text = rgb( 0.527115, 0.527115, 0.527115 );
-		const QColor select = rgb( 0.219999, 0.300000, 0.180000 );
 		const QColor selectInactive = rgb( 0.146666, 0.200000, 0.120000 );
 		const QColor selectParent = rgb( 0.054480, 0.054480, 0.054480 );
 		const QColor highlight = rgb( 0.527115, 1.000000, 0.304987 );
@@ -410,7 +408,7 @@ void theme_set( ETheme theme ){
 		lighterPalette.setColor( QPalette::Mid, hover );
 		lighterPalette.setColor( QPalette::Midlight, hover2 );
 		lighterPalette.setColor( QPalette::Light, rgb( 0.125000, 0.125000, 0.125000 ) );
-		lighterPalette.setColor( QPalette::Shadow, rgb( 0.052083, 0.052083, 0.052083 ) );
+		lighterPalette.setColor( QPalette::Shadow, select );
 		lighterPalette.setColor( QPalette::Disabled, QPalette::WindowText, selectInactive );
 		lighterPalette.setColor( QPalette::Disabled, QPalette::Text, selectInactive );
 		lighterPalette.setColor( QPalette::Disabled, QPalette::ButtonText, selectInactive );
@@ -419,8 +417,6 @@ void theme_set( ETheme theme ){
 		lighterPalette.setColor( QPalette::Inactive, QPalette::HighlightedText, text );
 		qApp->setPalette( lighterPalette );
 		qApp->setStyleSheet( load_qss( "lighter.qss" ) );
-	}
-	}
 	}
 	else if( theme == ETheme::Dark ){
 		set_icon_theme( false );
