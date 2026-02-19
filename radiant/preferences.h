@@ -195,7 +195,7 @@ public:
 		return "";
 	}
 
-	CGameDescription( xmlDocPtr pDoc, const CopiedString &GameFile );
+	CGameDescription( xmlDocPtr pDoc, const CopiedString &GameFile, const CopiedString& gameDirectory = CopiedString() );
 
 	void Dump();
 };

@@ -88,7 +88,7 @@ inline const char* xmlAttr_getValue( xmlAttrPtr attr ){
 	return reinterpret_cast<const char*>( attr->children->content );
 }
 
-CGameDescription::CGameDescription( xmlDocPtr pDoc, const CopiedString& gameFile ){
+CGameDescription::CGameDescription( xmlDocPtr pDoc, const CopiedString& gameFile, const CopiedString& gameDirectory ){
 	// read the user-friendly game name
 	xmlNodePtr pNode = pDoc->children;
 
@@ -105,7 +105,13 @@ CGameDescription::CGameDescription( xmlDocPtr pDoc, const CopiedString& gameFile
 		m_gameDescription.insert( GameDescription::value_type( xmlAttr_getName( attr ), xmlAttr_getValue( attr ) ) );
 	}
 
-	mGameToolsPath = StringStream( GamePacksPath_get(), gameFile, '/' );
+	if ( !string_empty( gameDirectory.c_str() ) ) {
+		mGameToolsPath = StringStream( DirectoryCleaned( gameDirectory.c_str() ) );
+	}
+	else
+	{
+		mGameToolsPath = StringStream( GamePacksPath_get(), gameFile, '/' );
+	}
 
 	ASSERT_MESSAGE( file_exists( mGameToolsPath.c_str() ), "game directory not found: " << Quoted( mGameToolsPath ) );
 
@@ -309,26 +315,29 @@ void CGameDialog::ScanForGames(){
 
 	for ( const char *suffix : suffixes )
 	{
-		const auto path = suffix[0]? StringStream( GamePacksPath_get(), suffix ) : StringStream( GamePacksPath_get(), "" );
-		if ( path.empty() ) {
+		const auto directory = suffix[0]? StringStream( GamePacksPath_get(), suffix ) : StringStream( GamePacksPath_get(), "" );
+		if ( directory.empty() ) {
 			continue;
 		}
 
-		if ( !file_is_directory( path.c_str() ) ) {
-			globalWarningStream() << "gamepacks path is not a directory: " << Quoted( path ) << '\n';
+		if ( !file_is_directory( directory.c_str() ) ) {
+			globalWarningStream() << "gamepacks path is not a directory: " << Quoted( directory ) << '\n';
 			continue;
 		}
 
 		scanned = true;
-		globalOutputStream() << "Scanning for game description files: " << path << '\n';
+		globalOutputStream() << "Scanning for game description files: " << directory << '\n';
 
-		Directory_forEach( path, matchFileExtension( "game", [&]( const char *name ){
-			const auto strPath = StringStream( path, name );
+		StringOutputStream directoryPathStream( 256 );
+		directoryPathStream << DirectoryCleaned( directory.c_str() );
+		const CopiedString directoryPath = directoryPathStream.c_str();
+		Directory_forEach( directoryPath.c_str(), matchFileExtension( "game", [&]( const char *name ){
+			const auto strPath = StringStream( directoryPath, name );
 			globalOutputStream() << strPath << '\n';
 
 			xmlDocPtr pDoc = xmlParseFile( strPath );
 			if ( pDoc ) {
-				mGames.push_back( new CGameDescription( pDoc, name ) );
+				mGames.push_back( new CGameDescription( pDoc, name, directoryPath ) );
 				xmlFreeDoc( pDoc );
 			}
 			else
