@@ -1648,6 +1648,11 @@ void Shaders_Load(){
 	if ( !string_empty( shaderPath ) ) {
 		const auto path = StringStream<64>( DirectoryCleaned( shaderPath ) );
 
+		auto buildShaderFileListAll = [&](){
+			l_shaderfiles.clear();
+			GlobalFileSystem().forEachFile( path, g_shadersExtension, makeCallbackF( ShaderList_addShaderFile ), 1 );
+		};
+
 		if ( g_useShaderList ) {
 			// preload shader files that have been listed in shaderlist.txt
 			const char* basegame = GlobalRadiant().getRequiredGameDescriptionKeyValue( "basegame" );
@@ -1668,7 +1673,7 @@ void Shaders_Load(){
 			}
 			else{
 				globalOutputStream() << "No shaderlist.txt found: loading all shaders\n";
-				GlobalFileSystem().forEachFile( path, g_shadersExtension, makeCallbackF( ShaderList_addShaderFile ), 1 );
+				buildShaderFileListAll();
 			}
 		}
 		else
@@ -1676,10 +1681,25 @@ void Shaders_Load(){
 			GlobalFileSystem().forEachFile( path, g_shadersExtension, makeCallbackF( ShaderList_addShaderFile ), 0 );
 		}
 
-		StringOutputStream shadername( 256 );
-		for( const CopiedString& sh : l_shaderfiles )
 		{
-			LoadShaderFile( shadername( path, sh ) );
+			const auto parsedFilesBefore = g_shaderFilenames.size();
+
+			StringOutputStream shadername( 256 );
+			for( const CopiedString& sh : l_shaderfiles )
+			{
+				LoadShaderFile( shadername( path, sh ) );
+			}
+
+			// If shaderlist.txt exists but references missing/invalid shader files, Radiant ends up with zero shaders.
+			// Fall back to scanning all shader files so loose dev content can still show up.
+			if ( g_useShaderList && !l_shaderfiles.empty() && g_shaderFilenames.size() == parsedFilesBefore ) {
+				globalWarningStream() << "Shaderlist loaded, but no shader files could be parsed; loading all shaders instead.\n";
+				buildShaderFileListAll();
+				for( const CopiedString& sh : l_shaderfiles )
+				{
+					LoadShaderFile( shadername( path, sh ) );
+				}
+			}
 		}
 	}
 

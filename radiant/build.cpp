@@ -1274,18 +1274,36 @@ const char* g_buildMenuFullPah(){
 }
 
 void LoadBuildMenu(){
-	if ( g_buildMenu.empty() || !build_commands_parse( g_buildMenuFullPah() ) ) {
+	auto tryParse = []( const char* filename ) -> bool {
+		build_commands_clear();
+		return build_commands_parse( filename );
+	};
+
+	if ( g_buildMenu.empty() || !tryParse( g_buildMenuFullPah() ) ) {
 		if( !string_equal_nocase( g_buildMenu.c_str(), "build_menu.xml" ) ){
 			g_buildMenu = "build_menu.xml";
-			if( build_commands_parse( g_buildMenuFullPah() ) )
+			if( tryParse( g_buildMenuFullPah() ) )
 				return;
 		}
 		{
-			const auto buffer = StringStream( GameToolsPath_get(), "default_build_menu.xml" );
-
-			const bool success = build_commands_parse( buffer );
-			ASSERT_MESSAGE( success, "failed to parse default build commands: " << buffer );
+			const auto gamepackDefault = StringStream( GamePacksPath_get(), g_pGameDescription->mGameFile, "/default_build_menu.xml" );
+			if( tryParse( gamepackDefault ) )
+				return;
 		}
+		{
+			// legacy location used by older layouts and some custom setups
+			const auto appDefault = StringStream( AppPath_get(), g_pGameDescription->mGameFile, "/default_build_menu.xml" );
+			if( tryParse( appDefault ) )
+				return;
+		}
+		{
+			// fallback for configs that keep build-menu defaults next to tools (q3map2, bspc, ...)
+			const auto toolsDefault = StringStream( GameToolsPath_get(), "default_build_menu.xml" );
+			if( tryParse( toolsDefault ) )
+				return;
+		}
+
+		globalErrorStream() << "failed to load default build menu for " << Quoted( g_pGameDescription->mGameFile ) << '\n';
 	}
 }
 
