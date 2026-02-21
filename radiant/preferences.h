@@ -372,6 +372,12 @@ void PreferencesDialog_destroyWindow();
 
 void PreferencesDialog_showDialog();
 
+extern CopiedString g_luaScriptProps;
+extern CopiedString g_luaScriptEntities;
+extern CopiedString g_luaScriptItems;
+extern CopiedString g_luaScriptMain;
+extern CopiedString g_luaScriptObjectives;
+
 void GlobalPreferences_Init();
 void Preferences_Init();
 

@@ -854,12 +854,22 @@ void GameMode_exportString( const StringImportCallback& importer ){
 }
 typedef FreeCaller<void(const StringImportCallback&), GameMode_exportString> GameModeExportStringCaller;
 
+CopiedString g_luaScriptProps = "scripts/props.lua";
+CopiedString g_luaScriptEntities = "scripts/entities.lua";
+CopiedString g_luaScriptItems = "scripts/items.lua";
+CopiedString g_luaScriptMain = "scripts/main.lua";
+CopiedString g_luaScriptObjectives = "scripts/objectives.lua";
 
 void RegisterPreferences( PreferenceSystem& preferences ){
 	preferences.registerPreference( "CustomShaderEditorCommand", CopiedStringImportStringCaller( g_TextEditor_editorCommand ), CopiedStringExportStringCaller( g_TextEditor_editorCommand ) );
 
 	preferences.registerPreference( "GameName", GameNameImportStringCaller(), GameNameExportStringCaller() );
 	preferences.registerPreference( "GameMode", GameModeImportStringCaller(), GameModeExportStringCaller() );
+	preferences.registerPreference( "LuaScriptProps", CopiedStringImportStringCaller( g_luaScriptProps ), CopiedStringExportStringCaller( g_luaScriptProps ) );
+	preferences.registerPreference( "LuaScriptEntities", CopiedStringImportStringCaller( g_luaScriptEntities ), CopiedStringExportStringCaller( g_luaScriptEntities ) );
+	preferences.registerPreference( "LuaScriptItems", CopiedStringImportStringCaller( g_luaScriptItems ), CopiedStringExportStringCaller( g_luaScriptItems ) );
+	preferences.registerPreference( "LuaScriptMain", CopiedStringImportStringCaller( g_luaScriptMain ), CopiedStringExportStringCaller( g_luaScriptMain ) );
+	preferences.registerPreference( "LuaScriptObjectives", CopiedStringImportStringCaller( g_luaScriptObjectives ), CopiedStringExportStringCaller( g_luaScriptObjectives ) );
 }
 
 void Preferences_Init(){

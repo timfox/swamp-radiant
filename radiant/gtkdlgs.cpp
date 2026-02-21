@@ -264,6 +264,12 @@ void Game_constructPreferences( PreferencesPage& page ){
 			IntExportCallback( GameModeExportCaller() )
 		);
 	}
+
+	page.appendPathEntry( "Lua props script", g_luaScriptProps, false );
+	page.appendPathEntry( "Lua entities script", g_luaScriptEntities, false );
+	page.appendPathEntry( "Lua items script", g_luaScriptItems, false );
+	page.appendPathEntry( "Lua main script", g_luaScriptMain, false );
+	page.appendPathEntry( "Lua objectives script", g_luaScriptObjectives, false );
 }
 
 // =============================================================================

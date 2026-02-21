@@ -22,6 +22,9 @@
 #include "build.h"
 #include "debugging/debugging.h"
 
+#include <libxml/parser.h>
+#include <libxml/tree.h>
+
 #include <map>
 #include <list>
 #include "stream/stringstream.h"
@@ -536,6 +539,79 @@ bool build_commands_parse( const char* filename ){
 		globalErrorStream() << "failed to parse build menu: " << Quoted( filename ) << '\n';
 	}
 	return false;
+}
+
+namespace
+{
+inline const char* xmlNode_getName( xmlNodePtr node ){
+	return reinterpret_cast<const char*>( node->name );
+}
+
+inline const char* xmlNode_getAttr( xmlNodePtr node, const char* key ){
+	for ( xmlAttrPtr attr = node->properties; attr != nullptr; attr = attr->next )
+	{
+		if ( string_equal( reinterpret_cast<const char*>( attr->name ), key ) ) {
+			if ( attr->children != nullptr && attr->children->content != nullptr ) {
+				return reinterpret_cast<const char*>( attr->children->content );
+			}
+			return "";
+		}
+	}
+	return "";
+}
+}
+
+bool build_commands_parse_compat( const char* filename ){
+	xmlDocPtr pDoc = xmlParseFile( filename );
+	if ( pDoc == nullptr ) {
+		return false;
+	}
+
+	xmlNodePtr root = xmlDocGetRootElement( pDoc );
+	if ( root == nullptr || !string_equal( xmlNode_getName( root ), "buildmenu" ) ) {
+		xmlFreeDoc( pDoc );
+		return false;
+	}
+
+	std::size_t commandsAdded = 0;
+	for ( xmlNodePtr menu = root->children; menu != nullptr; menu = menu->next )
+	{
+		if ( menu->type != XML_ELEMENT_NODE || !string_equal( xmlNode_getName( menu ), "menu" ) ) {
+			continue;
+		}
+
+		const char* menuName = xmlNode_getAttr( menu, "name" );
+		for ( xmlNodePtr command = menu->children; command != nullptr; command = command->next )
+		{
+			if ( command->type != XML_ELEMENT_NODE || !string_equal( xmlNode_getName( command ), "command" ) ) {
+				continue;
+			}
+
+			const char* cmd = xmlNode_getAttr( command, "cmd" );
+			if ( string_empty( cmd ) ) {
+				continue;
+			}
+
+			const char* commandName = xmlNode_getAttr( command, "name" );
+			const char* buildName = !string_empty( commandName ) ? commandName : menuName;
+			if ( string_empty( buildName ) ) {
+				buildName = "Build";
+			}
+
+			g_build_project.emplace_back( buildName, Build() );
+			g_build_project.back().second.emplace_back( cmd );
+			++commandsAdded;
+		}
+	}
+
+	xmlFreeDoc( pDoc );
+
+	if ( commandsAdded == 0 ) {
+		return false;
+	}
+
+	project_verify( g_build_project, g_build_tools );
+	return true;
 }
 
 void build_commands_clear(){
@@ -1276,7 +1352,7 @@ const char* g_buildMenuFullPah(){
 void LoadBuildMenu(){
 	auto tryParse = []( const char* filename ) -> bool {
 		build_commands_clear();
-		return build_commands_parse( filename );
+		return build_commands_parse( filename ) || build_commands_parse_compat( filename );
 	};
 
 	if ( g_buildMenu.empty() || !tryParse( g_buildMenuFullPah() ) ) {

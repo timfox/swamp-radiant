@@ -48,6 +48,7 @@
 #include <QLabel>
 #include <QSplitter>
 #include <QMenuBar>
+#include <QWidgetAction>
 #include <QApplication>
 #include <QToolBar>
 #include <QStatusBar>
@@ -1052,17 +1053,6 @@ void Experimental_toggleUSDDock(){
 	Experimental_toggleDock( g_exp_usdDock );
 }
 
-void Experimental_styleDockTitle( QDockWidget* dock, const char* title ){
-	if ( dock == nullptr ) {
-		return;
-	}
-	const auto labelText = StringStream( "[NEW] ", title );
-	dock->setWindowTitle( labelText.c_str() );
-	auto* label = new QLabel( labelText.c_str(), dock );
-	label->setStyleSheet( "QLabel { color: #58c95a; font-weight: 600; padding-left: 6px; }" );
-	dock->setTitleBarWidget( label );
-}
-
 void Experimental_importUSDStructure(){
 	if ( !g_Layout_expiramentalFeatures.m_value || g_exp_usdTree == nullptr ) {
 		return;
@@ -1128,7 +1118,7 @@ void Experimental_createDocks( QMainWindow* window ){
 	Experimental_setUndoTrackerAttached( true );
 
 	g_exp_propertiesDock = new QDockWidget( "Properties", window );
-	Experimental_styleDockTitle( g_exp_propertiesDock, "Properties" );
+	g_exp_propertiesDock->setObjectName( "dock_experimental_properties" );
 	{
 		auto* root = new QWidget( g_exp_propertiesDock );
 		auto* form = new QFormLayout( root );
@@ -1146,12 +1136,12 @@ void Experimental_createDocks( QMainWindow* window ){
 	window->addDockWidget( Qt::RightDockWidgetArea, g_exp_propertiesDock );
 
 	g_exp_previewDock = new QDockWidget( "Preview", window );
-	Experimental_styleDockTitle( g_exp_previewDock, "Preview" );
+	g_exp_previewDock->setObjectName( "dock_experimental_preview" );
 	g_exp_previewDock->setWidget( new ExperimentalPreviewWidget );
 	window->addDockWidget( Qt::RightDockWidgetArea, g_exp_previewDock );
 
 	g_exp_assetsDock = new QDockWidget( "Asset Library", window );
-	Experimental_styleDockTitle( g_exp_assetsDock, "Asset Library" );
+	g_exp_assetsDock->setObjectName( "dock_experimental_asset_library" );
 	{
 		auto* root = new QWidget( g_exp_assetsDock );
 		auto* vbox = new QVBoxLayout( root );
@@ -1175,7 +1165,7 @@ void Experimental_createDocks( QMainWindow* window ){
 	window->addDockWidget( Qt::LeftDockWidgetArea, g_exp_assetsDock );
 
 	g_exp_historyDock = new QDockWidget( "History", window );
-	Experimental_styleDockTitle( g_exp_historyDock, "History" );
+	g_exp_historyDock->setObjectName( "dock_experimental_history" );
 	{
 		g_exp_historyList = new QListWidget( g_exp_historyDock );
 		g_exp_historyDock->setWidget( g_exp_historyList );
@@ -1183,7 +1173,7 @@ void Experimental_createDocks( QMainWindow* window ){
 	window->addDockWidget( Qt::LeftDockWidgetArea, g_exp_historyDock );
 
 	g_exp_usdDock = new QDockWidget( "USD Structure", window );
-	Experimental_styleDockTitle( g_exp_usdDock, "USD Structure" );
+	g_exp_usdDock->setObjectName( "dock_experimental_usd_structure" );
 	{
 		auto* root = new QWidget( g_exp_usdDock );
 		auto* vbox = new QVBoxLayout( root );
@@ -1502,7 +1492,6 @@ void IdTech3Tool_openHubDialog(){
 
 	addTextTab( "Index", R"HTML(
 <h2>Id Tech 3 Tool Center</h2>
-<p>Hammer++-inspired quality-of-life hub for this Radiant fork.</p>
 <p><b>Scope:</b> id Tech 3 and mod workflows (including custom PBR shader pipelines), not Source/VTF.</p>
 <p><b>Sections:</b> Index, Features, Updates, Download, Credits, Tools.</p>
 <p><b>Discussion:</b> add your team Discord/community link in this tab if you want quick access from the editor.</p>
@@ -1517,7 +1506,7 @@ void IdTech3Tool_openHubDialog(){
 <li>Id Tech 3 Tool Center with compiler quick actions.</li>
 <li>Model add flow hardened to avoid misc_model graph corruption/asserts.</li>
 </ul>
-<h3>Planned Hammer++ Parity Track (id Tech 3 adaptation)</h3>
+<h3>Parity Track </h3>
 <ul>
 <li>Realtime lighting/material preview modes (legacy + PBR visualization).</li>
 <li>Instance workflow equivalent for prefab-like reuse and live preview context.</li>
@@ -1553,7 +1542,6 @@ void IdTech3Tool_openHubDialog(){
 	                          "<p>Expected binary/tool location for this editor build.</p>"
 	                          "<p>Current bundled compilers are id Tech 3 oriented (q3map2/qdata3/mbspc/etc).</p>" ).c_str() );
 	addTextTab( "Credits", R"HTML(
-<p>Design direction inspired by Hammer++ quality-of-life evolution.</p>
 <p>Implementation adapted for id Tech 3 editing and compile workflows.</p>
 <p>Thanks to Radiant maintainers, gamepack maintainers, and community tool authors.</p>
 )HTML" );
@@ -1723,7 +1711,55 @@ void Layout_setStyleAndRequestRestart( MainFrame::EViewStyle style, const char* 
 }
 
 void Layout_setHammerFourPane(){
-	Layout_setStyleAndRequestRestart( MainFrame::eSplit, "Hammer++ 4-pane" );
+	Layout_setStyleAndRequestRestart( MainFrame::eSplit, "4-pane" );
+}
+
+void Lua_openScript( const CopiedString& scriptPath, const char* title, bool externalEditor ){
+	if ( scriptPath.empty() ) {
+		globalWarningStream() << "Lua script path is empty for " << SingleQuoted( title ) << '\n';
+		return;
+	}
+	DoShaderView( scriptPath.c_str(), title, externalEditor );
+}
+
+void Lua_editProps(){
+	Lua_openScript( g_luaScriptProps, "Lua Props", false );
+}
+void Lua_editEntities(){
+	Lua_openScript( g_luaScriptEntities, "Lua Entities", false );
+}
+void Lua_editItems(){
+	Lua_openScript( g_luaScriptItems, "Lua Items", false );
+}
+void Lua_editMain(){
+	Lua_openScript( g_luaScriptMain, "Lua Main", false );
+}
+void Lua_editObjectives(){
+	Lua_openScript( g_luaScriptObjectives, "Lua Objectives", false );
+}
+void Lua_editPropsExternal(){
+	Lua_openScript( g_luaScriptProps, "Lua Props", true );
+}
+
+QAction* create_highlighted_view_menu_item( QMenu* menu, const char* mnemonic, const char* commandName ){
+	auto* commandAction = create_menu_item_with_mnemonic( menu, mnemonic, commandName );
+	menu->removeAction( commandAction );
+
+	auto* highlightedAction = new QWidgetAction( menu );
+	auto* button = new QPushButton( mnemonic, menu );
+	button->setFlat( true );
+	button->setStyleSheet(
+		"QPushButton { color: #35ff6b; background: transparent; border: 0; text-align: left; padding: 4px 26px 4px 24px; }"
+		"QPushButton:hover { background: rgba( 53, 255, 107, 0.18 ); }"
+	);
+	button->setSizePolicy( QSizePolicy::Expanding, QSizePolicy::Preferred );
+	highlightedAction->setDefaultWidget( button );
+	QObject::connect( button, &QPushButton::clicked, menu, [menu, commandAction](){
+		commandAction->trigger();
+		menu->hide();
+	} );
+	menu->addAction( highlightedAction );
+	return commandAction;
 }
 }
 
@@ -1762,7 +1798,7 @@ void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	if ( style != MainFrame::eRegular && style != MainFrame::eRegularLeft ) {
 		create_menu_item_with_mnemonic( menu, "Console", "ToggleConsole" );
 	}
-	create_menu_item_with_mnemonic( menu, "Switch to Hammer++ 4-pane layout", "LayoutHammerFourPane" );
+	create_menu_item_with_mnemonic( menu, "Switch to 4-pane layout", "LayoutHammerFourPane" );
 	if ( ( style != MainFrame::eRegular && style != MainFrame::eRegularLeft ) || g_Layout_builtInGroupDialog.m_value ) {
 		create_menu_item_with_mnemonic( menu, "Texture Browser", "ToggleTextures" );
 	}
@@ -1773,11 +1809,11 @@ void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	create_menu_item_with_mnemonic( menu, "Entity List", "ToggleEntityList" );
 	if ( g_Layout_expiramentalFeatures.m_value ) {
 		menu->addSeparator();
-		create_menu_item_with_mnemonic( menu, "[NEW] Properties", "ToggleExperimentalProperties" );
-		create_menu_item_with_mnemonic( menu, "[NEW] Preview", "ToggleExperimentalPreview" );
-		create_menu_item_with_mnemonic( menu, "[NEW] Asset Library", "ToggleExperimentalAssets" );
-		create_menu_item_with_mnemonic( menu, "[NEW] History", "ToggleExperimentalHistory" );
-		create_menu_item_with_mnemonic( menu, "[NEW] USD Structure", "ToggleExperimentalUSD" );
+		create_highlighted_view_menu_item( menu, "[Properties]", "ToggleExperimentalProperties" );
+		create_highlighted_view_menu_item( menu, "[Preview]", "ToggleExperimentalPreview" );
+		create_highlighted_view_menu_item( menu, "[Asset Library]", "ToggleExperimentalAssets" );
+		create_highlighted_view_menu_item( menu, "[History]", "ToggleExperimentalHistory" );
+		create_highlighted_view_menu_item( menu, "[USD Structure]", "ToggleExperimentalUSD" );
 	}
 
 	menu->addSeparator();
@@ -2061,6 +2097,19 @@ void create_tools_menu( QMenuBar *menubar ){
 	create_menu_item_with_mnemonic( menu, "QData3++ Help", "ToolQData3Help" );
 	create_menu_item_with_mnemonic( menu, "Q2Map++ Help", "ToolQ2MapHelp" );
 	create_menu_item_with_mnemonic( menu, "MBSPC++ Help", "ToolMBSPCHelp" );
+	menu->addSeparator();
+	{
+		QMenu* submenu = menu->addMenu( "Lua" );
+		submenu->setTearOffEnabled( g_Layout_enableDetachableMenus.m_value );
+		create_menu_item_with_mnemonic( submenu, "Edit props.lua", "LuaEditProps" );
+		create_menu_item_with_mnemonic( submenu, "Edit entities.lua", "LuaEditEntities" );
+		create_menu_item_with_mnemonic( submenu, "Edit items.lua", "LuaEditItems" );
+		submenu->addSeparator();
+		create_menu_item_with_mnemonic( submenu, "Edit main.lua", "LuaEditMain" );
+		create_menu_item_with_mnemonic( submenu, "Edit objectives.lua", "LuaEditObjectives" );
+		submenu->addSeparator();
+		create_menu_item_with_mnemonic( submenu, "Edit props.lua externally", "LuaEditPropsExternal" );
+	}
 }
 
 void create_help_menu( QMenuBar *menubar ){
@@ -2953,6 +3002,12 @@ void MainFrame_Construct(){
 	GlobalCommands_insert( "ToolQData3Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[1] ); } ) );
 	GlobalCommands_insert( "ToolQ2MapHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[2] ); } ) );
 	GlobalCommands_insert( "ToolMBSPCHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[3] ); } ) );
+	GlobalCommands_insert( "LuaEditProps", makeCallbackF( Lua_editProps ) );
+	GlobalCommands_insert( "LuaEditEntities", makeCallbackF( Lua_editEntities ) );
+	GlobalCommands_insert( "LuaEditItems", makeCallbackF( Lua_editItems ) );
+	GlobalCommands_insert( "LuaEditMain", makeCallbackF( Lua_editMain ) );
+	GlobalCommands_insert( "LuaEditObjectives", makeCallbackF( Lua_editObjectives ) );
+	GlobalCommands_insert( "LuaEditPropsExternal", makeCallbackF( Lua_editPropsExternal ) );
 	GlobalCommands_insert( "CameraStoreBookmark1", makeCallbackF( +[](){ CameraBookmark_store( 0 ); } ), QKeySequence( "Ctrl+1" ) );
 	GlobalCommands_insert( "CameraStoreBookmark2", makeCallbackF( +[](){ CameraBookmark_store( 1 ); } ), QKeySequence( "Ctrl+2" ) );
 	GlobalCommands_insert( "CameraStoreBookmark3", makeCallbackF( +[](){ CameraBookmark_store( 2 ); } ), QKeySequence( "Ctrl+3" ) );
