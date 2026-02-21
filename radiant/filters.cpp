@@ -34,6 +34,7 @@
 #include "gtkmisc.h"
 #include "commands.h"
 #include "preferences.h"
+#include "mainframe.h"
 
 struct filters_globals_t
 {
@@ -232,8 +233,10 @@ void ConstructFilters(){
 	if ( g_pGameDescription->mGameType != "doom3" ) {
 		add_filter_command( EXCLUDE_LIGHTGRID, "FilterLightgrid" );
 	}
-	add_filter_command( EXCLUDE_CURVES, "FilterPatches", QKeySequence( "Ctrl+P" ) );
-	add_filter_command( EXCLUDE_DETAILS, "FilterDetails", QKeySequence( "Ctrl+D" ) );
+	add_filter_command( EXCLUDE_CURVES, "FilterPatches",
+	                   Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Alt+P" ) : QKeySequence( "Ctrl+P" ) );
+	add_filter_command( EXCLUDE_DETAILS, "FilterDetails",
+	                   Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Alt+Shift+D" ) : QKeySequence( "Ctrl+D" ) );
 	add_filter_command( EXCLUDE_HINTSSKIPS, "FilterHintsSkips", QKeySequence( "Ctrl+H" ) );
 	add_filter_command( EXCLUDE_MODELS, "FilterModels", QKeySequence( "Shift+M" ) );
 	add_filter_command( EXCLUDE_TRIGGERS, "FilterTriggers", QKeySequence( "Ctrl+Shift+T" ) );

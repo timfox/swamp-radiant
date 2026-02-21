@@ -1839,6 +1839,9 @@ void SelectConnectedEntities(){
 
 void Select_registerCommands(){
 	GlobalCommands_insert( "ShowHidden", makeCallbackF( Select_ShowAllHidden ), QKeySequence( "Shift+H" ) );
+	if( Layout_expiramentalFeaturesEnabled() ){
+		GlobalCommands_insert( "ShowHiddenAlt", makeCallbackF( Select_ShowAllHidden ), QKeySequence( "Alt+H" ) );
+	}
 	GlobalToggles_insert( "HideSelected", makeCallbackF( HideSelected ), ToggleItem::AddCallbackCaller( g_hidden_item ), QKeySequence( "H" ) );
 
 	GlobalCommands_insert( "MirrorSelectionX", makeCallbackF( Selection_Flipx ) );
@@ -1864,11 +1867,15 @@ void Select_registerCommands(){
 	GlobalCommands_insert( "PasteToCamera", makeCallbackF( PasteToCamera ), QKeySequence( "Shift+V" ) );
 	GlobalCommands_insert( "MoveToCamera", makeCallbackF( MoveToCamera ), QKeySequence( "Ctrl+Shift+V" ) );
 	GlobalCommands_insert( "CloneSelection", makeCallbackF( Selection_Clone ), QKeySequence( "Space" ) );
+	if( Layout_expiramentalFeaturesEnabled() ){
+		GlobalCommands_insert( "CloneSelectionModern", makeCallbackF( Selection_Clone ), QKeySequence( "Ctrl+D" ) );
+	}
 	GlobalCommands_insert( "CloneSelectionAndMakeUnique", makeCallbackF( Selection_Clone_MakeUnique ), QKeySequence( "Shift+Space" ) );
 	GlobalCommands_insert( "DeleteSelection3", makeCallbackF( deleteSelection ), QKeySequence( "Delete" ) );
 	GlobalCommands_insert( "DeleteSelection2", makeCallbackF( deleteSelection ), QKeySequence( "Backspace" ) );
 	GlobalCommands_insert( "DeleteSelection", makeCallbackF( deleteSelection ), QKeySequence( "Z" ) );
-	GlobalCommands_insert( "RepeatTransforms", makeCallbackF( +[](){ GlobalSelectionSystem().repeatTransforms(); } ), QKeySequence( "Ctrl+R" ) );
+	GlobalCommands_insert( "RepeatTransforms", makeCallbackF( +[](){ GlobalSelectionSystem().repeatTransforms(); } ),
+	                       Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Alt+Shift+R" ) : QKeySequence( "Ctrl+R" ) );
 	GlobalCommands_insert( "ResetTransforms", makeCallbackF( +[](){ GlobalSelectionSystem().resetTransforms(); } ), QKeySequence( "Alt+R" ) );
 //	GlobalCommands_insert( "ParentSelection", makeCallbackF( Scene_parentSelected ) );
 	GlobalCommands_insert( "UnSelectSelection2", makeCallbackF( Selection_Deselect ), QKeySequence( "Escape" ) );
@@ -1883,7 +1890,8 @@ void Select_registerCommands(){
 	GlobalCommands_insert( "ArbitraryRotation", makeCallbackF( DoRotateDlg ), QKeySequence( "Shift+R" ) );
 	GlobalCommands_insert( "ArbitraryScale", makeCallbackF( DoScaleDlg ), QKeySequence( "Ctrl+Shift+S" ) );
 
-	GlobalCommands_insert( "SnapToGrid", makeCallbackF( Selection_SnapToGrid ), QKeySequence( "Ctrl+G" ) );
+	GlobalCommands_insert( "SnapToGrid", makeCallbackF( Selection_SnapToGrid ),
+	                       Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Ctrl+Shift+G" ) : QKeySequence( "Ctrl+G" ) );
 
 	GlobalCommands_insert( "SelectAllOfType", makeCallbackF( Select_AllOfType ), QKeySequence( "Shift+A" ) );
 

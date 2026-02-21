@@ -419,15 +419,19 @@ void ToggleDragSkewModes(){
 
 
 void Tools_registerCommands(){
+	const auto edgeAccel = Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Shift+E" ) : QKeySequence( "E" );
+	const auto faceAccel = Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Shift+F" ) : QKeySequence( "F" );
+	const auto scaleAccel = Layout_expiramentalFeaturesEnabled() ? QKeySequence( "E" ) : QKeySequence();
+
 	GlobalToggles_insert( "DragVertices", makeCallbackF( SelectVertexMode ), ToggleItem::AddCallbackCaller( g_vertexMode_button ), QKeySequence( "V" ) );
-	GlobalToggles_insert( "DragEdges", makeCallbackF( SelectEdgeMode ), ToggleItem::AddCallbackCaller( g_edgeMode_button ), QKeySequence( "E" ) );
-	GlobalToggles_insert( "DragFaces", makeCallbackF( SelectFaceMode ), ToggleItem::AddCallbackCaller( g_faceMode_button ), QKeySequence( "F" ) );
+	GlobalToggles_insert( "DragEdges", makeCallbackF( SelectEdgeMode ), ToggleItem::AddCallbackCaller( g_edgeMode_button ), edgeAccel );
+	GlobalToggles_insert( "DragFaces", makeCallbackF( SelectFaceMode ), ToggleItem::AddCallbackCaller( g_faceMode_button ), faceAccel );
 
 	GlobalToggles_insert( "ToggleClipper", makeCallbackF( ClipperMode ), ToggleItem::AddCallbackCaller( g_clipper_button ), QKeySequence( "X" ) );
 
 	GlobalToggles_insert( "MouseTranslate", makeCallbackF( TranslateMode ), ToggleItem::AddCallbackCaller( g_translatemode_button ), QKeySequence( "W" ) );
 	GlobalToggles_insert( "MouseRotate", makeCallbackF( RotateMode ), ToggleItem::AddCallbackCaller( g_rotatemode_button ), QKeySequence( "R" ) );
-	GlobalToggles_insert( "MouseScale", makeCallbackF( ScaleMode ), ToggleItem::AddCallbackCaller( g_scalemode_button ) );
+	GlobalToggles_insert( "MouseScale", makeCallbackF( ScaleMode ), ToggleItem::AddCallbackCaller( g_scalemode_button ), scaleAccel );
 	GlobalToggles_insert( "MouseTransform", makeCallbackF( SkewMode ), ToggleItem::AddCallbackCaller( g_skewmode_button ) );
 	GlobalToggles_insert( "MouseDrag", makeCallbackF( DragMode ), ToggleItem::AddCallbackCaller( g_dragmode_button ) );
 	GlobalToggles_insert( "MouseBuild", makeCallbackF( BuildMode ), ToggleItem::AddCallbackCaller( g_build_button ), QKeySequence( "B" ) );

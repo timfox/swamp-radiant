@@ -52,11 +52,34 @@
 #include <QToolBar>
 #include <QStatusBar>
 #include <QBoxLayout>
+#include <QDialog>
 #include <QCloseEvent>
 #include <QSettings>
+#include <QDockWidget>
 #include <QGroupBox>
 #include <QDialogButtonBox>
 #include <QPushButton>
+#include <QMessageBox>
+#include <QFormLayout>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QTabWidget>
+#include <QTextBrowser>
+#include <QSlider>
+#include <QTreeWidget>
+#include <QFileDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QClipboard>
+#include <QTextStream>
+#include <QRegularExpression>
+#include <QOpenGLWidget>
+#include <QOpenGLFunctions>
+#include <QList>
 
 #include "commandlib.h"
 #include "scenelib.h"
@@ -81,6 +104,7 @@
 #include "commands.h"
 #include "console.h"
 #include "entity.h"
+#include "eclasslib.h"
 #include "entityinspector.h"
 #include "entitylist.h"
 #include "filters.h"
@@ -114,6 +138,7 @@
 #include "renderstate.h"
 #include "feedback.h"
 #include "referencecache.h"
+#include "iundo.h"
 
 #include "colors.h"
 #include "tools.h"
@@ -889,6 +914,313 @@ void UpdateAllWindows(){
 LatchedInt g_Layout_viewStyle( 0, "Window Layout" );
 LatchedBool g_Layout_enableDetachableMenus( true, "Detachable Menus" );
 LatchedBool g_Layout_builtInGroupDialog( false, "Built-In Group Dialog" );
+LatchedBool g_Layout_expiramentalFeatures( false, "Expiramental Features" );
+bool Layout_expiramentalFeaturesEnabled(){
+	return g_Layout_expiramentalFeatures.m_value;
+}
+
+namespace
+{
+QDockWidget* g_exp_propertiesDock{};
+QDockWidget* g_exp_previewDock{};
+QDockWidget* g_exp_assetsDock{};
+QDockWidget* g_exp_historyDock{};
+QDockWidget* g_exp_usdDock{};
+QLabel* g_exp_selectedCountLabel{};
+QLabel* g_exp_selectedComponentsLabel{};
+QLineEdit* g_exp_shaderEdit{};
+QListWidget* g_exp_assetsList{};
+QListWidget* g_exp_historyList{};
+QTreeWidget* g_exp_usdTree{};
+std::size_t g_exp_historyCounter{};
+bool g_exp_undoTrackerAttached{};
+
+class ExperimentalPreviewWidget final : public QOpenGLWidget, protected QOpenGLFunctions
+{
+	void initializeGL() override {
+		initializeOpenGLFunctions();
+	}
+	void paintGL() override {
+		glClearColor( 0.14f, 0.14f, 0.16f, 1.0f );
+		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+	}
+};
+
+class ExperimentalUndoTracker final : public UndoTracker
+{
+	void addEvent( const char* event ) const {
+		if ( g_exp_historyList == nullptr ) {
+			return;
+		}
+		g_exp_historyList->addItem( StringStream( '#', ++g_exp_historyCounter, ' ', event ).c_str() );
+		g_exp_historyList->scrollToBottom();
+	}
+public:
+	void clear() override {
+		g_exp_historyCounter = 0;
+		if ( g_exp_historyList != nullptr ) {
+			g_exp_historyList->clear();
+		}
+	}
+	void begin() override {
+		addEvent( "Begin change" );
+	}
+	void undo() override {
+		addEvent( "Undo" );
+	}
+	void redo() override {
+		addEvent( "Redo" );
+	}
+};
+ExperimentalUndoTracker g_experimentalUndoTracker;
+
+void Experimental_setUndoTrackerAttached( bool attached ){
+	if ( attached && !g_exp_undoTrackerAttached ) {
+		GlobalUndoSystem().trackerAttach( g_experimentalUndoTracker );
+		g_exp_undoTrackerAttached = true;
+	}
+	else if ( !attached && g_exp_undoTrackerAttached ) {
+		GlobalUndoSystem().trackerDetach( g_experimentalUndoTracker );
+		g_exp_undoTrackerAttached = false;
+	}
+}
+
+void Experimental_refreshSelection(){
+	if ( g_exp_selectedCountLabel != nullptr ) {
+		g_exp_selectedCountLabel->setText( StringStream( GlobalSelectionSystem().countSelected() ).c_str() );
+	}
+	if ( g_exp_selectedComponentsLabel != nullptr ) {
+		g_exp_selectedComponentsLabel->setText( StringStream( GlobalSelectionSystem().countSelectedComponents() ).c_str() );
+	}
+}
+
+void Experimental_selectionChanged( const Selectable& ){
+	Experimental_refreshSelection();
+}
+
+void Experimental_applySelectedShader(){
+	if ( g_exp_shaderEdit == nullptr || g_exp_shaderEdit->text().isEmpty() ) {
+		return;
+	}
+
+	const auto shader = g_exp_shaderEdit->text().trimmed().toLatin1();
+	if ( shader.isEmpty() ) {
+		return;
+	}
+
+	Select_SetShader_Undo( shader.constData() );
+	UpdateAllWindows();
+}
+
+struct ExperimentalShaderNameVisitor
+{
+	void operator()( const char* name ) const {
+		if ( g_exp_assetsList != nullptr ) {
+			g_exp_assetsList->addItem( name );
+		}
+	}
+};
+
+void Experimental_refreshAssetLibrary(){
+	if ( g_exp_assetsList == nullptr ) {
+		return;
+	}
+	g_exp_assetsList->clear();
+	GlobalShaderSystem().foreachShaderName( makeCallback( ExperimentalShaderNameVisitor() ) );
+	g_exp_assetsList->sortItems();
+}
+
+void Experimental_toggleDock( QDockWidget* dock ){
+	if ( dock != nullptr ) {
+		dock->setVisible( !dock->isVisible() );
+	}
+}
+
+void Experimental_togglePropertiesDock(){
+	Experimental_toggleDock( g_exp_propertiesDock );
+}
+void Experimental_togglePreviewDock(){
+	Experimental_toggleDock( g_exp_previewDock );
+}
+void Experimental_toggleAssetsDock(){
+	Experimental_toggleDock( g_exp_assetsDock );
+}
+void Experimental_toggleHistoryDock(){
+	Experimental_toggleDock( g_exp_historyDock );
+}
+void Experimental_toggleUSDDock(){
+	Experimental_toggleDock( g_exp_usdDock );
+}
+
+void Experimental_styleDockTitle( QDockWidget* dock, const char* title ){
+	if ( dock == nullptr ) {
+		return;
+	}
+	const auto labelText = StringStream( "[NEW] ", title );
+	dock->setWindowTitle( labelText.c_str() );
+	auto* label = new QLabel( labelText.c_str(), dock );
+	label->setStyleSheet( "QLabel { color: #58c95a; font-weight: 600; padding-left: 6px; }" );
+	dock->setTitleBarWidget( label );
+}
+
+void Experimental_importUSDStructure(){
+	if ( !g_Layout_expiramentalFeatures.m_value || g_exp_usdTree == nullptr ) {
+		return;
+	}
+
+	const auto filename = QFileDialog::getOpenFileName( MainFrame_getWindow(), "Import USD Structure", "", "USD Files (*.usd *.usda *.usdc)" );
+	if ( filename.isEmpty() ) {
+		return;
+	}
+
+	QFile file( filename );
+	if ( !file.open( QIODevice::ReadOnly | QIODevice::Text ) ) {
+		globalErrorStream() << "failed to open USD file: " << filename.toLatin1().constData() << '\n';
+		return;
+	}
+
+	g_exp_usdTree->clear();
+
+	QTextStream stream( &file );
+	QList<QTreeWidgetItem*> stack;
+	const QRegularExpression defRegex( "^def\\s+\\w+\\s+\"([^\"]+)\"" );
+
+	while ( !stream.atEnd() )
+	{
+		const auto line = stream.readLine().trimmed();
+
+		if ( line.startsWith( '}' ) ) {
+			if ( !stack.isEmpty() ) {
+				stack.removeLast();
+			}
+			continue;
+		}
+
+		const auto match = defRegex.match( line );
+		if ( !match.hasMatch() ) {
+			continue;
+		}
+
+		auto* item = new QTreeWidgetItem( QStringList( match.captured( 1 ) ) );
+		if ( stack.isEmpty() ) {
+			g_exp_usdTree->addTopLevelItem( item );
+		}
+		else{
+			stack.back()->addChild( item );
+		}
+
+		if ( line.contains( '{' ) ) {
+			stack.push_back( item );
+		}
+	}
+
+	g_exp_usdTree->expandAll();
+	if ( g_exp_usdDock != nullptr ) {
+		g_exp_usdDock->show();
+	}
+}
+
+void Experimental_createDocks( QMainWindow* window ){
+	if ( !g_Layout_expiramentalFeatures.m_value || window == nullptr ) {
+		return;
+	}
+
+	Experimental_setUndoTrackerAttached( true );
+
+	g_exp_propertiesDock = new QDockWidget( "Properties", window );
+	Experimental_styleDockTitle( g_exp_propertiesDock, "Properties" );
+	{
+		auto* root = new QWidget( g_exp_propertiesDock );
+		auto* form = new QFormLayout( root );
+		g_exp_selectedCountLabel = new QLabel( "0", root );
+		g_exp_selectedComponentsLabel = new QLabel( "0", root );
+		g_exp_shaderEdit = new QLineEdit( root );
+		auto* applyButton = new QPushButton( "Apply Shader", root );
+		form->addRow( "Selected", g_exp_selectedCountLabel );
+		form->addRow( "Selected Components", g_exp_selectedComponentsLabel );
+		form->addRow( "Shader", g_exp_shaderEdit );
+		form->addRow( "", applyButton );
+		QObject::connect( applyButton, &QPushButton::clicked, [](){ Experimental_applySelectedShader(); } );
+		g_exp_propertiesDock->setWidget( root );
+	}
+	window->addDockWidget( Qt::RightDockWidgetArea, g_exp_propertiesDock );
+
+	g_exp_previewDock = new QDockWidget( "Preview", window );
+	Experimental_styleDockTitle( g_exp_previewDock, "Preview" );
+	g_exp_previewDock->setWidget( new ExperimentalPreviewWidget );
+	window->addDockWidget( Qt::RightDockWidgetArea, g_exp_previewDock );
+
+	g_exp_assetsDock = new QDockWidget( "Asset Library", window );
+	Experimental_styleDockTitle( g_exp_assetsDock, "Asset Library" );
+	{
+		auto* root = new QWidget( g_exp_assetsDock );
+		auto* vbox = new QVBoxLayout( root );
+		g_exp_assetsList = new QListWidget( root );
+		g_exp_assetsList->setViewMode( QListView::IconMode );
+		g_exp_assetsList->setUniformItemSizes( true );
+		g_exp_assetsList->setResizeMode( QListView::Adjust );
+		g_exp_assetsList->setDragEnabled( true );
+		auto* refreshButton = new QPushButton( "Refresh Assets", root );
+		vbox->addWidget( g_exp_assetsList );
+		vbox->addWidget( refreshButton );
+		QObject::connect( refreshButton, &QPushButton::clicked, [](){ Experimental_refreshAssetLibrary(); } );
+		QObject::connect( g_exp_assetsList, &QListWidget::itemDoubleClicked, []( QListWidgetItem* item ){
+			if ( item != nullptr && g_exp_shaderEdit != nullptr ) {
+				g_exp_shaderEdit->setText( item->text() );
+				Experimental_applySelectedShader();
+			}
+		} );
+		g_exp_assetsDock->setWidget( root );
+	}
+	window->addDockWidget( Qt::LeftDockWidgetArea, g_exp_assetsDock );
+
+	g_exp_historyDock = new QDockWidget( "History", window );
+	Experimental_styleDockTitle( g_exp_historyDock, "History" );
+	{
+		g_exp_historyList = new QListWidget( g_exp_historyDock );
+		g_exp_historyDock->setWidget( g_exp_historyList );
+	}
+	window->addDockWidget( Qt::LeftDockWidgetArea, g_exp_historyDock );
+
+	g_exp_usdDock = new QDockWidget( "USD Structure", window );
+	Experimental_styleDockTitle( g_exp_usdDock, "USD Structure" );
+	{
+		auto* root = new QWidget( g_exp_usdDock );
+		auto* vbox = new QVBoxLayout( root );
+		auto* importButton = new QPushButton( "Import USD Structure...", root );
+		g_exp_usdTree = new QTreeWidget( root );
+		g_exp_usdTree->setHeaderLabels( QStringList( "Prim" ) );
+		vbox->addWidget( importButton );
+		vbox->addWidget( g_exp_usdTree );
+		QObject::connect( importButton, &QPushButton::clicked, [](){ Experimental_importUSDStructure(); } );
+		g_exp_usdDock->setWidget( root );
+	}
+	window->addDockWidget( Qt::LeftDockWidgetArea, g_exp_usdDock );
+
+	window->tabifyDockWidget( g_exp_propertiesDock, g_exp_previewDock );
+	window->tabifyDockWidget( g_exp_assetsDock, g_exp_historyDock );
+	window->tabifyDockWidget( g_exp_historyDock, g_exp_usdDock );
+
+	Experimental_refreshSelection();
+	Experimental_refreshAssetLibrary();
+}
+
+void Experimental_destroyDocks(){
+	Experimental_setUndoTrackerAttached( false );
+	g_exp_propertiesDock = nullptr;
+	g_exp_previewDock = nullptr;
+	g_exp_assetsDock = nullptr;
+	g_exp_historyDock = nullptr;
+	g_exp_usdDock = nullptr;
+	g_exp_selectedCountLabel = nullptr;
+	g_exp_selectedComponentsLabel = nullptr;
+	g_exp_shaderEdit = nullptr;
+	g_exp_assetsList = nullptr;
+	g_exp_historyList = nullptr;
+	g_exp_usdTree = nullptr;
+	g_exp_historyCounter = 0;
+}
+}
 
 
 
@@ -954,6 +1286,467 @@ void create_edit_menu( QMenuBar *menubar ){
 	create_menu_item_with_mnemonic( menu, "Pre&ferences...", "Preferences" );
 }
 
+namespace
+{
+Vector3 Add_entitySpawnOrigin(){
+	if ( g_pParentWnd != nullptr && g_pParentWnd->GetCamWnd() != nullptr ) {
+		return Camera_getOrigin( *g_pParentWnd->GetCamWnd() );
+	}
+	return g_vector3_identity;
+}
+
+void Add_createMiscModel();
+
+void Add_createEntity( const char* classname ){
+	if ( classname_equal( classname, "misc_model" ) ) {
+		Add_createMiscModel();
+		return;
+	}
+	Entity_createFromSelection( classname, Add_entitySpawnOrigin() );
+}
+
+void Add_createLight(){
+	Add_createEntity( "light" );
+}
+
+void Add_createInfoPlayerStart(){
+	Add_createEntity( "info_player_start" );
+}
+
+void Add_createInfoPlayerDeathmatch(){
+	Add_createEntity( "info_player_deathmatch" );
+}
+
+void Add_createMiscModel(){
+	const char* modelPath = misc_model_dialog( MainFrame_getWindow() );
+	if ( modelPath == nullptr ) {
+		return;
+	}
+
+	UndoableCommand undo( "insertModel" );
+	EntityClass* entityClass = GlobalEntityClassManager().findOrInsert( "misc_model", false );
+	NodeSmartReference node( GlobalEntityCreator().createEntity( entityClass ) );
+
+	Node_getTraversable( GlobalSceneGraph().root() )->insert( node );
+
+	scene::Path entitypath( makeReference( GlobalSceneGraph().root() ) );
+	entitypath.push( makeReference( node.get() ) );
+	scene::Instance& instance = findInstance( entitypath );
+
+	if ( Transformable* transform = Instance_getTransformable( instance ) ) {
+		transform->setType( TRANSFORM_PRIMITIVE );
+		transform->setTranslation( Add_entitySpawnOrigin() );
+		transform->freezeTransform();
+	}
+
+	GlobalSelectionSystem().setSelectedAll( false );
+	Instance_setSelected( instance, true );
+
+	Node_getEntity( node )->setKeyValue( entityClass->miscmodel_key(), modelPath );
+}
+
+class AddEntityClassCollector final : public EntityClassVisitor
+{
+	QList<QString>& m_names;
+public:
+	AddEntityClassCollector( QList<QString>& names ) : m_names( names ){
+	}
+	void visit( EntityClass* entityClass ) override {
+		m_names.push_back( entityClass->name() );
+	}
+};
+
+void Add_openEntityDialog(){
+	QDialog dialog( MainFrame_getWindow() );
+	dialog.setWindowTitle( "Add Entity" );
+	dialog.setModal( true );
+	dialog.resize( 560, 480 );
+
+	auto* layout = new QVBoxLayout( &dialog );
+	auto* filterEdit = new QLineEdit( &dialog );
+	filterEdit->setPlaceholderText( "Filter entity classes..." );
+	layout->addWidget( filterEdit );
+
+	auto* list = new QListWidget( &dialog );
+	list->setSelectionMode( QAbstractItemView::SelectionMode::SingleSelection );
+	layout->addWidget( list, 1 );
+
+	auto* buttons = new QDialogButtonBox( QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog );
+	buttons->button( QDialogButtonBox::Ok )->setText( "Add" );
+	layout->addWidget( buttons );
+
+	QList<QString> names;
+	{
+		AddEntityClassCollector collector( names );
+		GlobalEntityClassManager().forEach( collector );
+	}
+	names.sort( Qt::CaseInsensitive );
+
+	const auto refill = [&](){
+		const auto filter = filterEdit->text();
+		list->clear();
+		for ( const auto& name : names )
+		{
+			if ( filter.isEmpty() || name.contains( filter, Qt::CaseInsensitive ) ) {
+				list->addItem( name );
+			}
+		}
+		if ( list->count() > 0 ) {
+			list->setCurrentRow( 0 );
+		}
+	};
+
+	QObject::connect( filterEdit, &QLineEdit::textChanged, [&](){ refill(); } );
+	QObject::connect( buttons, &QDialogButtonBox::accepted, [&](){
+		if ( list->currentItem() != nullptr ) {
+			dialog.accept();
+		}
+	} );
+	QObject::connect( buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject );
+	QObject::connect( list, &QListWidget::itemDoubleClicked, [&]( QListWidgetItem* item ){
+		if ( item != nullptr ) {
+			dialog.accept();
+		}
+	} );
+
+	refill();
+	filterEdit->setFocus();
+
+	if ( dialog.exec() == QDialog::DialogCode::Accepted && list->currentItem() != nullptr ) {
+		const auto classname = list->currentItem()->text().toLatin1();
+		Add_createEntity( classname.constData() );
+	}
+}
+
+Vector3 g_cameraBookmarks_origin[5];
+Vector3 g_cameraBookmarks_angles[5];
+bool g_cameraBookmarks_valid[5]{};
+
+void CameraBookmark_store( std::size_t index ){
+	if ( g_pParentWnd == nullptr || g_pParentWnd->GetCamWnd() == nullptr || index >= 5 ) {
+		return;
+	}
+	g_cameraBookmarks_origin[index] = Camera_getOrigin( *g_pParentWnd->GetCamWnd() );
+	g_cameraBookmarks_angles[index] = Camera_getAngles( *g_pParentWnd->GetCamWnd() );
+	g_cameraBookmarks_valid[index] = true;
+	Sys_Status( StringStream( "Stored camera bookmark ", index + 1 ).c_str() );
+}
+
+void CameraBookmark_recall( std::size_t index ){
+	if ( g_pParentWnd == nullptr || g_pParentWnd->GetCamWnd() == nullptr || index >= 5 ) {
+		return;
+	}
+	if ( !g_cameraBookmarks_valid[index] ) {
+		Sys_Status( StringStream( "Camera bookmark ", index + 1, " is empty" ).c_str() );
+		return;
+	}
+	Camera_setOrigin( *g_pParentWnd->GetCamWnd(), g_cameraBookmarks_origin[index] );
+	Camera_setAngles( *g_pParentWnd->GetCamWnd(), g_cameraBookmarks_angles[index] );
+	UpdateAllWindows();
+	Sys_Status( StringStream( "Recalled camera bookmark ", index + 1 ).c_str() );
+}
+
+struct IdTech3ToolDef
+{
+	const char* name;
+	const char* executable;
+	const char* description;
+};
+
+IdTech3ToolDef g_idTech3Tools[] = {
+	{ "Q3Map2++", "q3map2.x86_64", "Primary id Tech 3 map compiler (BSP/VIS/LIGHT stages)." },
+	{ "QData3++", "qdata3.x86_64", "Asset compile pipeline for models/sprites and game data." },
+	{ "Q2Map++", "q2map.x86_64", "Legacy Quake II style map compile utility." },
+	{ "MBSPC++", "mbspc.x86_64", "Bot navigation compiler for BSP maps." },
+};
+
+QString IdTech3Tool_executablePath( const char* executable ){
+	return QDir( QString::fromLatin1( AppPath_get() ) ).filePath( executable );
+}
+
+void IdTech3Tool_copyHelpCommand( const IdTech3ToolDef& tool ){
+	const auto command = StringStream( '"', IdTech3Tool_executablePath( tool.executable ).toUtf8().constData(), "\" --help" );
+	QGuiApplication::clipboard()->setText( command.c_str() );
+	Sys_Status( StringStream( "Copied command: ", tool.name ).c_str() );
+}
+
+void IdTech3Tool_runHelp( const IdTech3ToolDef& tool ){
+	const auto executable = IdTech3Tool_executablePath( tool.executable );
+	if ( !QFileInfo::exists( executable ) ) {
+		QMessageBox::warning( MainFrame_getWindow(), "Tool not found", StringStream( "Missing executable:\n", executable.toUtf8().constData() ).c_str() );
+		return;
+	}
+	if ( !QProcess::startDetached( executable, { "--help" }, QFileInfo( executable ).absolutePath() ) ) {
+		QMessageBox::warning( MainFrame_getWindow(), "Launch failed", StringStream( "Failed to start:\n", executable.toUtf8().constData() ).c_str() );
+		return;
+	}
+	Sys_Status( StringStream( "Launched ", tool.name, " --help" ).c_str() );
+}
+
+void IdTech3Tool_openHubDialog(){
+	QDialog dialog( MainFrame_getWindow() );
+	dialog.setWindowTitle( "Id Tech 3 Tool Center" );
+	dialog.setModal( true );
+	dialog.resize( 860, 620 );
+
+	auto* layout = new QVBoxLayout( &dialog );
+	auto* tabs = new QTabWidget( &dialog );
+	layout->addWidget( tabs, 1 );
+
+	auto addTextTab = [tabs]( const char* title, const char* html ){
+		auto* text = new QTextBrowser( tabs );
+		text->setOpenExternalLinks( true );
+		text->setHtml( html );
+		tabs->addTab( text, title );
+	};
+
+	addTextTab( "Index", R"HTML(
+<h2>Id Tech 3 Tool Center</h2>
+<p>Hammer++-inspired quality-of-life hub for this Radiant fork.</p>
+<p><b>Scope:</b> id Tech 3 and mod workflows (including custom PBR shader pipelines), not Source/VTF.</p>
+<p><b>Sections:</b> Index, Features, Updates, Download, Credits, Tools.</p>
+<p><b>Discussion:</b> add your team Discord/community link in this tab if you want quick access from the editor.</p>
+<p><b>Note:</b> compiler and external-tool redistribution policy remains up to tool authors and your project licenses.</p>
+)HTML" );
+	addTextTab( "Features", R"HTML(
+<h3>Implemented</h3>
+<ul>
+<li>Add menu with direct placement actions and searchable <b>Add Entity...</b> picker.</li>
+<li>Hammer-style 4-pane layout preset (3D + Top + Front + Side).</li>
+<li>Camera bookmarks: <b>Ctrl+1..5</b> store, <b>Shift+1..5</b> recall.</li>
+<li>Id Tech 3 Tool Center with compiler quick actions.</li>
+<li>Model add flow hardened to avoid misc_model graph corruption/asserts.</li>
+</ul>
+<h3>Planned Hammer++ Parity Track (id Tech 3 adaptation)</h3>
+<ul>
+<li>Realtime lighting/material preview modes (legacy + PBR visualization).</li>
+<li>Instance workflow equivalent for prefab-like reuse and live preview context.</li>
+<li>Improved color picker (RGB/HSV presets, per-map palette behavior).</li>
+<li>Editor-object visibility toggles (helpers, tool textures, debug sprites).</li>
+<li>Model/material hot-reload and richer particle preview controls.</li>
+<li>Gizmo + pivot workflow upgrades and local/global transform toggles.</li>
+<li>Face/UV tooling upgrades and clipping/vertex editing QoL refinements.</li>
+<li>Advanced browsers (model/material/particle) with better filtering.</li>
+</ul>
+<h3>Out of Scope / Engine-Specific Mapping</h3>
+<ul>
+<li>Source-only items (VMF/VTF/VBSP/VVIS/VRAD semantics) are replaced with id Tech 3 equivalents.</li>
+<li>Skybox/fog/render-effect previews are targeted to id Tech 3 entity/shader conventions.</li>
+</ul>
+)HTML" );
+	addTextTab( "Updates", R"HTML(
+<h3>Recent</h3>
+<ul>
+<li>Added Add menu, entity picker, and safe model insertion path.</li>
+<li>Added Hammer-style 4-pane preset and bookmark camera workflow.</li>
+<li>Added Tools menu + Id Tech 3 Tool Center.</li>
+</ul>
+<h3>Next Up</h3>
+<ul>
+<li>PBR shader workflow page and validation commands in this hub.</li>
+<li>Toolbar toggles for helper visibility and preview channels.</li>
+<li>First-pass lighting preview controls in 3D view.</li>
+</ul>
+)HTML" );
+	addTextTab( "Download",
+	            StringStream( "<p><b>Install path:</b></p><pre>", AppPath_get(), "</pre>"
+	                          "<p>Expected binary/tool location for this editor build.</p>"
+	                          "<p>Current bundled compilers are id Tech 3 oriented (q3map2/qdata3/mbspc/etc).</p>" ).c_str() );
+	addTextTab( "Credits", R"HTML(
+<p>Design direction inspired by Hammer++ quality-of-life evolution.</p>
+<p>Implementation adapted for id Tech 3 editing and compile workflows.</p>
+<p>Thanks to Radiant maintainers, gamepack maintainers, and community tool authors.</p>
+)HTML" );
+
+	auto* toolsTab = new QWidget( tabs );
+	auto* toolsLayout = new QVBoxLayout( toolsTab );
+	auto* toolsList = new QListWidget( toolsTab );
+	toolsLayout->addWidget( toolsList, 1 );
+	auto* buttonRow = new QHBoxLayout();
+	auto* runHelpButton = new QPushButton( "Run --help", toolsTab );
+	auto* copyButton = new QPushButton( "Copy Command", toolsTab );
+	buttonRow->addWidget( runHelpButton );
+	buttonRow->addWidget( copyButton );
+	buttonRow->addStretch( 1 );
+	toolsLayout->addLayout( buttonRow );
+	for ( std::size_t index = 0; index < std::size( g_idTech3Tools ); ++index )
+	{
+		const auto& tool = g_idTech3Tools[index];
+		auto* item = new QListWidgetItem( StringStream( tool.name, " — ", tool.description ).c_str(), toolsList );
+		item->setData( Qt::UserRole, int( index ) );
+	}
+	toolsList->setCurrentRow( 0 );
+	QObject::connect( runHelpButton, &QPushButton::clicked, [toolsList](){
+		if ( auto* item = toolsList->currentItem() ) {
+			IdTech3Tool_runHelp( g_idTech3Tools[item->data( Qt::UserRole ).toInt()] );
+		}
+	} );
+	QObject::connect( copyButton, &QPushButton::clicked, [toolsList](){
+		if ( auto* item = toolsList->currentItem() ) {
+			IdTech3Tool_copyHelpCommand( g_idTech3Tools[item->data( Qt::UserRole ).toInt()] );
+		}
+	} );
+	tabs->addTab( toolsTab, "Tools" );
+
+	auto* closeButtons = new QDialogButtonBox( QDialogButtonBox::Close, &dialog );
+	layout->addWidget( closeButtons );
+	QObject::connect( closeButtons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject );
+
+	dialog.exec();
+}
+
+QProcess* g_audioPreviewProcess{};
+QString g_audioPreviewProgram;
+
+QString AudioPreview_findPlayerProgram(){
+	if ( !g_audioPreviewProgram.isEmpty() ) {
+		return g_audioPreviewProgram;
+	}
+	for ( const auto& candidate : { "ffplay", "mpv", "vlc", "cvlc", "mpg123", "mplayer", "xdg-open" } )
+	{
+		const auto found = QStandardPaths::findExecutable( candidate );
+		if ( !found.isEmpty() ) {
+			g_audioPreviewProgram = found;
+			break;
+		}
+	}
+	return g_audioPreviewProgram;
+}
+
+void AudioPreview_stop(){
+	if ( g_audioPreviewProcess != nullptr ) {
+		g_audioPreviewProcess->kill();
+		g_audioPreviewProcess->deleteLater();
+		g_audioPreviewProcess = nullptr;
+	}
+}
+
+bool AudioPreview_playFile( const QString& filePath, int volumePercent ){
+	AudioPreview_stop();
+	const auto program = AudioPreview_findPlayerProgram();
+	if ( program.isEmpty() ) {
+		return false;
+	}
+	QStringList args;
+	const auto exeName = QFileInfo( program ).fileName();
+	if ( exeName == "ffplay" ) {
+		args << "-nodisp" << "-autoexit" << "-loglevel" << "quiet" << "-volume" << QString::number( qBound( 0, volumePercent, 100 ) ) << filePath;
+	}
+	else if ( exeName == "mpv" ) {
+		args << "--no-video" << "--really-quiet" << "--volume" << QString::number( qBound( 0, volumePercent, 100 ) ) << filePath;
+	}
+	else if ( exeName == "vlc" || exeName == "cvlc" ) {
+		args << "--play-and-exit" << "--intf" << "dummy" << filePath;
+	}
+	else if ( exeName == "xdg-open" ) {
+		args << filePath;
+	}
+	else{
+		args << filePath;
+	}
+	g_audioPreviewProcess = new QProcess( MainFrame_getWindow() );
+	g_audioPreviewProcess->setProgram( program );
+	g_audioPreviewProcess->setArguments( args );
+	g_audioPreviewProcess->start();
+	return g_audioPreviewProcess->waitForStarted( 2000 );
+}
+
+void AudioPreview_openDialog(){
+	QDialog dialog( MainFrame_getWindow() );
+	dialog.setWindowTitle( "Audio Preview (MP3 / OGG / WAV)" );
+	dialog.setModal( true );
+	dialog.resize( 700, 180 );
+
+	auto* root = new QVBoxLayout( &dialog );
+	auto* form = new QFormLayout();
+	auto* pathRow = new QHBoxLayout();
+	auto* pathEdit = new QLineEdit( &dialog );
+	pathEdit->setPlaceholderText( "Choose a sound file..." );
+	auto* browseButton = new QPushButton( "Browse...", &dialog );
+	pathRow->addWidget( pathEdit, 1 );
+	pathRow->addWidget( browseButton );
+	auto* pathWidget = new QWidget( &dialog );
+	pathWidget->setLayout( pathRow );
+	form->addRow( "File", pathWidget );
+
+	auto* volumeSlider = new QSlider( Qt::Horizontal, &dialog );
+	volumeSlider->setRange( 0, 100 );
+	volumeSlider->setValue( 80 );
+	form->addRow( "Volume", volumeSlider );
+	root->addLayout( form );
+
+	auto* buttons = new QDialogButtonBox( &dialog );
+	auto* playButton = buttons->addButton( "Play", QDialogButtonBox::ActionRole );
+	auto* stopButton = buttons->addButton( "Stop", QDialogButtonBox::ActionRole );
+	auto* closeButton = buttons->addButton( QDialogButtonBox::Close );
+	root->addWidget( buttons );
+
+	QObject::connect( browseButton, &QPushButton::clicked, [&](){
+		const auto startPath = pathEdit->text().isEmpty() ? QString::fromLatin1( EnginePath_get() ) : QFileInfo( pathEdit->text() ).absolutePath();
+		const auto selected = QFileDialog::getOpenFileName( &dialog, "Select Audio File", startPath, "Audio Files (*.mp3 *.ogg *.wav *.flac);;All Files (*)" );
+		if ( !selected.isEmpty() ) {
+			pathEdit->setText( selected );
+		}
+	} );
+	QObject::connect( playButton, &QPushButton::clicked, [&](){
+		const auto file = pathEdit->text().trimmed();
+		if ( file.isEmpty() ) {
+			return;
+		}
+		if ( !QFileInfo::exists( file ) ) {
+			QMessageBox::warning( &dialog, "Missing file", "Selected file does not exist." );
+			return;
+		}
+		if ( !AudioPreview_playFile( file, volumeSlider->value() ) ) {
+			QMessageBox::warning( &dialog, "No player found", "Install ffplay/mpv/vlc (or set xdg-open) to preview audio." );
+		}
+	} );
+	QObject::connect( stopButton, &QPushButton::clicked, &dialog, [](){ AudioPreview_stop(); } );
+	QObject::connect( closeButton, &QPushButton::clicked, &dialog, &QDialog::reject );
+	QObject::connect( &dialog, &QDialog::rejected, [](){ AudioPreview_stop(); } );
+
+	dialog.exec();
+}
+
+void Layout_setStyleAndRequestRestart( MainFrame::EViewStyle style, const char* name ){
+	if ( g_Layout_viewStyle.m_latched == style ) {
+		return;
+	}
+
+	g_Layout_viewStyle.import( style );
+	Preferences_Save();
+
+	const auto message = StringStream( name, " layout will apply after restart.\n\nRestart now?" );
+	if ( QMessageBox::question( MainFrame_getWindow(), "Restart is required", message.c_str(), QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) == QMessageBox::Yes ) {
+		Radiant_Restart();
+	}
+}
+
+void Layout_setHammerFourPane(){
+	Layout_setStyleAndRequestRestart( MainFrame::eSplit, "Hammer++ 4-pane" );
+}
+}
+
+void create_add_menu( QMenuBar *menubar ){
+	QMenu *menu = menubar->addMenu( "&Add" );
+
+	menu->setTearOffEnabled( g_Layout_enableDetachableMenus.m_value );
+
+	create_menu_item_with_mnemonic( menu, "Entity...", "AddEntityByName" );
+	menu->addSeparator();
+	create_menu_item_with_mnemonic( menu, "Light", "AddLight" );
+	create_menu_item_with_mnemonic( menu, "Player Start", "AddInfoPlayerStart" );
+	create_menu_item_with_mnemonic( menu, "Player Deathmatch", "AddInfoPlayerDeathmatch" );
+	create_menu_item_with_mnemonic( menu, "Model...", "AddMiscModel" );
+	menu->addSeparator();
+
+	QMenu* brushMenu = menu->addMenu( "Brush Primitive" );
+	brushMenu->setTearOffEnabled( g_Layout_enableDetachableMenus.m_value );
+	create_menu_item_with_mnemonic( brushMenu, "Prism...", "BrushPrism" );
+	create_menu_item_with_mnemonic( brushMenu, "Cone...", "BrushCone" );
+	create_menu_item_with_mnemonic( brushMenu, "Sphere...", "BrushSphere" );
+}
+
 void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	// View menu
 	QMenu *menu = menubar->addMenu( "Vie&w" );
@@ -969,6 +1762,7 @@ void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	if ( style != MainFrame::eRegular && style != MainFrame::eRegularLeft ) {
 		create_menu_item_with_mnemonic( menu, "Console", "ToggleConsole" );
 	}
+	create_menu_item_with_mnemonic( menu, "Switch to Hammer++ 4-pane layout", "LayoutHammerFourPane" );
 	if ( ( style != MainFrame::eRegular && style != MainFrame::eRegularLeft ) || g_Layout_builtInGroupDialog.m_value ) {
 		create_menu_item_with_mnemonic( menu, "Texture Browser", "ToggleTextures" );
 	}
@@ -977,6 +1771,14 @@ void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	create_menu_item_with_mnemonic( menu, "Layers Browser", "ToggleLayersBrowser" );
 	create_menu_item_with_mnemonic( menu, "&Surface Inspector", "SurfaceInspector" );
 	create_menu_item_with_mnemonic( menu, "Entity List", "ToggleEntityList" );
+	if ( g_Layout_expiramentalFeatures.m_value ) {
+		menu->addSeparator();
+		create_menu_item_with_mnemonic( menu, "[NEW] Properties", "ToggleExperimentalProperties" );
+		create_menu_item_with_mnemonic( menu, "[NEW] Preview", "ToggleExperimentalPreview" );
+		create_menu_item_with_mnemonic( menu, "[NEW] Asset Library", "ToggleExperimentalAssets" );
+		create_menu_item_with_mnemonic( menu, "[NEW] History", "ToggleExperimentalHistory" );
+		create_menu_item_with_mnemonic( menu, "[NEW] USD Structure", "ToggleExperimentalUSD" );
+	}
 
 	menu->addSeparator();
 	{
@@ -994,6 +1796,18 @@ void create_view_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 		submenu->addSeparator();
 		create_menu_item_with_mnemonic( submenu, "Next leak spot", "NextLeakSpot" );
 		create_menu_item_with_mnemonic( submenu, "Previous leak spot", "PrevLeakSpot" );
+		submenu->addSeparator();
+		create_menu_item_with_mnemonic( submenu, "Store Bookmark 1", "CameraStoreBookmark1" );
+		create_menu_item_with_mnemonic( submenu, "Store Bookmark 2", "CameraStoreBookmark2" );
+		create_menu_item_with_mnemonic( submenu, "Store Bookmark 3", "CameraStoreBookmark3" );
+		create_menu_item_with_mnemonic( submenu, "Store Bookmark 4", "CameraStoreBookmark4" );
+		create_menu_item_with_mnemonic( submenu, "Store Bookmark 5", "CameraStoreBookmark5" );
+		submenu->addSeparator();
+		create_menu_item_with_mnemonic( submenu, "Recall Bookmark 1", "CameraRecallBookmark1" );
+		create_menu_item_with_mnemonic( submenu, "Recall Bookmark 2", "CameraRecallBookmark2" );
+		create_menu_item_with_mnemonic( submenu, "Recall Bookmark 3", "CameraRecallBookmark3" );
+		create_menu_item_with_mnemonic( submenu, "Recall Bookmark 4", "CameraRecallBookmark4" );
+		create_menu_item_with_mnemonic( submenu, "Recall Bookmark 5", "CameraRecallBookmark5" );
 		//cameramodel is not implemented in instances, thus useless
 //		submenu->addSeparator();
 //		create_menu_item_with_mnemonic( submenu, "Look Through Selected", "LookThroughSelected" );
@@ -1200,6 +2014,9 @@ void create_misc_menu( QMenuBar *menubar ){
 	create_menu_item_with_mnemonic( menu, "Find brush...", "FindBrush" );
 	create_menu_item_with_mnemonic( menu, "Map Info...", "MapInfo" );
 	create_menu_item_with_mnemonic( menu, "&Refresh models", "RefreshReferences" );
+	if ( g_Layout_expiramentalFeatures.m_value ) {
+		create_menu_item_with_mnemonic( menu, "Import USD structure...", "ImportUSDStructure" );
+	}
 	create_menu_item_with_mnemonic( menu, "Set 2D &Background image...", makeCallbackF( WXY_SetBackgroundImage ) );
 	create_menu_item_with_mnemonic( menu, "Fullscreen", "Fullscreen" );
 	create_menu_item_with_mnemonic( menu, "Maximize view", "MaximizeView" );
@@ -1232,6 +2049,20 @@ void create_patch_menu( QMenuBar *menubar ){
 	Patch_constructMenu( menu );
 }
 
+void create_tools_menu( QMenuBar *menubar ){
+	QMenu *menu = menubar->addMenu( "&Tools" );
+
+	menu->setTearOffEnabled( g_Layout_enableDetachableMenus.m_value );
+
+	create_menu_item_with_mnemonic( menu, "Id Tech 3 Tool Center...", "OpenIdTech3ToolCenter" );
+	create_menu_item_with_mnemonic( menu, "Audio Preview (MP3/OGG/WAV)...", "OpenAudioPreview" );
+	menu->addSeparator();
+	create_menu_item_with_mnemonic( menu, "Q3Map2++ Help", "ToolQ3Map2Help" );
+	create_menu_item_with_mnemonic( menu, "QData3++ Help", "ToolQData3Help" );
+	create_menu_item_with_mnemonic( menu, "Q2Map++ Help", "ToolQ2MapHelp" );
+	create_menu_item_with_mnemonic( menu, "MBSPC++ Help", "ToolMBSPCHelp" );
+}
+
 void create_help_menu( QMenuBar *menubar ){
 	// Help menu
 	QMenu *menu = menubar->addMenu( "&Help" );
@@ -1245,13 +2076,14 @@ void create_help_menu( QMenuBar *menubar ){
 	create_game_help_menu( menu );
 
 	create_menu_item_with_mnemonic( menu, "Bug report", makeCallbackF( OpenBugReportURL ) );
-	create_menu_item_with_mnemonic( menu, "Check for NetRadiant update", "CheckForUpdate" ); // FIXME
+	create_menu_item_with_mnemonic( menu, "Check for Radiant update", "CheckForUpdate" ); // FIXME
 	create_menu_item_with_mnemonic( menu, "&About", makeCallbackF( DoAbout ) );
 }
 
 void create_main_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	create_file_menu( menubar );
  	create_edit_menu( menubar );
+	create_add_menu( menubar );
 	create_view_menu( menubar, style );
 	create_selection_menu( menubar );
 	create_bsp_menu( menubar );
@@ -1261,6 +2093,7 @@ void create_main_menu( QMenuBar *menubar, MainFrame::EViewStyle style ){
 	create_brush_menu( menubar );
 	if ( !string_equal( g_pGameDescription->getKeyValue( "no_patch" ), "1" ) )
 		create_patch_menu( menubar );
+	create_tools_menu( menubar );
 	create_plugins_menu( menubar );
 	create_help_menu( menubar );
 }
@@ -1865,20 +2698,20 @@ void MainFrame::Create(){
 
 		m_vSplit->addWidget( CamWnd_getWidget( *m_pCamWnd ) );
 
-		m_pYZWnd = new XYWnd();
-		m_pYZWnd->SetViewType( YZ );
+		m_pXZWnd = new XYWnd();
+		m_pXZWnd->SetViewType( XZ );
 
-		m_vSplit->addWidget( m_pYZWnd->GetWidget() );
+		m_vSplit->addWidget( m_pXZWnd->GetWidget() );
 
 		m_pXYWnd = new XYWnd();
 		m_pXYWnd->SetViewType( XY );
 
 		m_vSplit2->addWidget( m_pXYWnd->GetWidget() );
 
-		m_pXZWnd = new XYWnd();
-		m_pXZWnd->SetViewType( XZ );
+		m_pYZWnd = new XYWnd();
+		m_pYZWnd->SetViewType( YZ );
 
-		m_vSplit2->addWidget( m_pXZWnd->GetWidget() );
+		m_vSplit2->addWidget( m_pYZWnd->GetWidget() );
 	}
 
 	if( g_Layout_builtInGroupDialog.m_value && CurrentStyle() != eFloating ){
@@ -1901,6 +2734,8 @@ void MainFrame::Create(){
 	AddGridChangeCallback( SetGridStatusCaller( *this ) );
 	AddGridChangeCallback( FreeCaller<void(), XY_UpdateAllWindows>() );
 
+	Experimental_createDocks( window );
+
 	s_qe_every_second_timer.enable();
 
 	toolbar_importState( g_toolbarHiddenButtons.c_str() );
@@ -1922,8 +2757,8 @@ void MainFrame::RestoreGuiState(){
 
 	if( !FloatingGroupDialog() && m_hSplit != nullptr && m_vSplit != nullptr && m_vSplit2 != nullptr ){
 		g_guiSettings.addSplitter( m_hSplit, "MainFrame/m_hSplit", { 384, 576 } );
-		g_guiSettings.addSplitter( m_vSplit, "MainFrame/m_vSplit", { 377, 20 } );
-		g_guiSettings.addSplitter( m_vSplit2, "MainFrame/m_vSplit2", { 250, 150 } );
+		g_guiSettings.addSplitter( m_vSplit, "MainFrame/m_vSplit", CurrentStyle() == eSplit ? QList<int>{ 250, 250 } : QList<int>{ 377, 20 } );
+		g_guiSettings.addSplitter( m_vSplit2, "MainFrame/m_vSplit2", CurrentStyle() == eSplit ? QList<int>{ 250, 250 } : QList<int>{ 250, 150 } );
 	}
 }
 
@@ -1951,6 +2786,9 @@ void MainFrame::Shutdown(){
 
 	// destroying group-dialog last because it may contain texture-browser
 	GroupDialog_destroyWindow();
+
+	Experimental_destroyDocks();
+	AudioPreview_stop();
 
 	user_shortcuts_save();
 }
@@ -2072,6 +2910,11 @@ void Layout_constructPreferences( PreferencesPage& page ){
 	    LatchedImportCaller( g_Layout_builtInGroupDialog ),
 	    BoolExportCaller( g_Layout_builtInGroupDialog.m_latched )
 	);
+	page.appendCheckBox(
+	    "", "Expiramental Features",
+	    LatchedImportCaller( g_Layout_expiramentalFeatures ),
+	    BoolExportCaller( g_Layout_expiramentalFeatures.m_latched )
+	);
 }
 
 void Layout_constructPage( PreferenceGroup& group ){
@@ -2098,23 +2941,60 @@ void MainFrame_Construct(){
 	GlobalCommands_insert( "RefreshReferences", makeCallbackF( RefreshReferences ) );
 	GlobalCommands_insert( "CheckForUpdate", makeCallbackF( OpenUpdateURL ) );
 	GlobalCommands_insert( "Exit", makeCallbackF( Exit ) );
+	GlobalCommands_insert( "AddEntityByName", makeCallbackF( Add_openEntityDialog ) );
+	GlobalCommands_insert( "AddLight", makeCallbackF( Add_createLight ) );
+	GlobalCommands_insert( "AddInfoPlayerStart", makeCallbackF( Add_createInfoPlayerStart ) );
+	GlobalCommands_insert( "AddInfoPlayerDeathmatch", makeCallbackF( Add_createInfoPlayerDeathmatch ) );
+	GlobalCommands_insert( "AddMiscModel", makeCallbackF( Add_createMiscModel ) );
+	GlobalCommands_insert( "LayoutHammerFourPane", makeCallbackF( Layout_setHammerFourPane ) );
+	GlobalCommands_insert( "OpenIdTech3ToolCenter", makeCallbackF( IdTech3Tool_openHubDialog ) );
+	GlobalCommands_insert( "OpenAudioPreview", makeCallbackF( AudioPreview_openDialog ) );
+	GlobalCommands_insert( "ToolQ3Map2Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[0] ); } ) );
+	GlobalCommands_insert( "ToolQData3Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[1] ); } ) );
+	GlobalCommands_insert( "ToolQ2MapHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[2] ); } ) );
+	GlobalCommands_insert( "ToolMBSPCHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[3] ); } ) );
+	GlobalCommands_insert( "CameraStoreBookmark1", makeCallbackF( +[](){ CameraBookmark_store( 0 ); } ), QKeySequence( "Ctrl+1" ) );
+	GlobalCommands_insert( "CameraStoreBookmark2", makeCallbackF( +[](){ CameraBookmark_store( 1 ); } ), QKeySequence( "Ctrl+2" ) );
+	GlobalCommands_insert( "CameraStoreBookmark3", makeCallbackF( +[](){ CameraBookmark_store( 2 ); } ), QKeySequence( "Ctrl+3" ) );
+	GlobalCommands_insert( "CameraStoreBookmark4", makeCallbackF( +[](){ CameraBookmark_store( 3 ); } ), QKeySequence( "Ctrl+4" ) );
+	GlobalCommands_insert( "CameraStoreBookmark5", makeCallbackF( +[](){ CameraBookmark_store( 4 ); } ), QKeySequence( "Ctrl+5" ) );
+	GlobalCommands_insert( "CameraRecallBookmark1", makeCallbackF( +[](){ CameraBookmark_recall( 0 ); } ), QKeySequence( "Shift+1" ) );
+	GlobalCommands_insert( "CameraRecallBookmark2", makeCallbackF( +[](){ CameraBookmark_recall( 1 ); } ), QKeySequence( "Shift+2" ) );
+	GlobalCommands_insert( "CameraRecallBookmark3", makeCallbackF( +[](){ CameraBookmark_recall( 2 ); } ), QKeySequence( "Shift+3" ) );
+	GlobalCommands_insert( "CameraRecallBookmark4", makeCallbackF( +[](){ CameraBookmark_recall( 3 ); } ), QKeySequence( "Shift+4" ) );
+	GlobalCommands_insert( "CameraRecallBookmark5", makeCallbackF( +[](){ CameraBookmark_recall( 4 ); } ), QKeySequence( "Shift+5" ) );
 
-	GlobalCommands_insert( "Shortcuts", makeCallbackF( DoCommandListDlg ), QKeySequence( "Ctrl+Shift+P" ) );
+	GlobalCommands_insert( "Shortcuts", makeCallbackF( DoCommandListDlg ),
+	                       g_Layout_expiramentalFeatures.m_value ? QKeySequence( "Ctrl+Alt+P" ) : QKeySequence( "Ctrl+Shift+P" ) );
 	GlobalCommands_insert( "Preferences", makeCallbackF( PreferencesDialog_showDialog ), QKeySequence( "P" ) );
+	if( g_Layout_expiramentalFeatures.m_value ){
+		GlobalCommands_insert( "FrameSelection", makeCallbackF( FocusAllViews ), QKeySequence( "F" ) );
+	}
 
 	GlobalCommands_insert( "ToggleConsole", makeCallbackF( Console_ToggleShow ), QKeySequence( "O" ) );
 	GlobalCommands_insert( "ToggleEntityInspector", makeCallbackF( EntityInspector_ToggleShow ), QKeySequence( "N" ) );
 	GlobalCommands_insert( "ToggleModelBrowser", makeCallbackF( ModelBrowser_ToggleShow ), QKeySequence( "/" ) );
 	GlobalCommands_insert( "ToggleLayersBrowser", makeCallbackF( LayersBrowser_ToggleShow ), QKeySequence( "L" ) );
 	GlobalCommands_insert( "ToggleEntityList", makeCallbackF( EntityList_toggleShown ), QKeySequence( "Shift+L" ) );
+	GlobalCommands_insert( "ToggleExperimentalProperties", makeCallbackF( Experimental_togglePropertiesDock ) );
+	GlobalCommands_insert( "ToggleExperimentalPreview", makeCallbackF( Experimental_togglePreviewDock ) );
+	GlobalCommands_insert( "ToggleExperimentalAssets", makeCallbackF( Experimental_toggleAssetsDock ) );
+	GlobalCommands_insert( "ToggleExperimentalHistory", makeCallbackF( Experimental_toggleHistoryDock ) );
+	GlobalCommands_insert( "ToggleExperimentalUSD", makeCallbackF( Experimental_toggleUSDDock ) );
+	GlobalCommands_insert( "ImportUSDStructure", makeCallbackF( Experimental_importUSDStructure ) );
 
 	Select_registerCommands();
 	Layers_registerCommands();
 
 	Tools_registerCommands();
 
-	GlobalCommands_insert( "BuildMenuCustomize", makeCallbackF( DoBuildMenu ) );
+	GlobalCommands_insert( "BuildMenuCustomize", makeCallbackF( DoBuildMenu ),
+	                       g_Layout_expiramentalFeatures.m_value ? QKeySequence( "Ctrl+Shift+P" ) : QKeySequence() );
 	GlobalCommands_insert( "Build_runRecentExecutedBuild", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "F5" ) );
+	if( g_Layout_expiramentalFeatures.m_value ){
+		GlobalCommands_insert( "Build_runRecentExecutedBuildCtrlP", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "Ctrl+P" ) );
+		GlobalCommands_insert( "Build_runRecentExecutedBuildCtrlR", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "Ctrl+R" ) );
+	}
 
 	GlobalCommands_insert( "OpenGLFont", makeCallbackF( OpenGLFont_select ) );
 
@@ -2133,6 +3013,7 @@ void MainFrame_Construct(){
 	GlobalPreferenceSystem().registerPreference( "DetachableMenus", makeBoolStringImportCallback( LatchedAssignCaller( g_Layout_enableDetachableMenus ) ), BoolExportStringCaller( g_Layout_enableDetachableMenus.m_latched ) );
 	GlobalPreferenceSystem().registerPreference( "QE4StyleWindows", makeIntStringImportCallback( LatchedAssignCaller( g_Layout_viewStyle ) ), IntExportStringCaller( g_Layout_viewStyle.m_latched ) );
 	GlobalPreferenceSystem().registerPreference( "BuiltInGroupDialog", makeBoolStringImportCallback( LatchedAssignCaller( g_Layout_builtInGroupDialog ) ), BoolExportStringCaller( g_Layout_builtInGroupDialog.m_latched ) );
+	GlobalPreferenceSystem().registerPreference( "ExpiramentalFeatures", makeBoolStringImportCallback( LatchedAssignCaller( g_Layout_expiramentalFeatures ) ), BoolExportStringCaller( g_Layout_expiramentalFeatures.m_latched ) );
 	GlobalPreferenceSystem().registerPreference( "ToolbarHiddenButtons", CopiedStringImportStringCaller( g_toolbarHiddenButtons ), CopiedStringExportStringCaller( g_toolbarHiddenButtons ) );
 	GlobalPreferenceSystem().registerPreference( "OpenGLFont", CopiedStringImportStringCaller( g_OpenGLFont ), CopiedStringExportStringCaller( g_OpenGLFont ) );
 	GlobalPreferenceSystem().registerPreference( "OpenGLFontSize", IntImportStringCaller( g_OpenGLFontSize ), IntExportStringCaller( g_OpenGLFontSize ) );
@@ -2169,6 +3050,7 @@ void MainFrame_Construct(){
 	g_entityCount.setCountChangedCallback( makeCallbackF( QE_brushCountChanged ) );
 	GlobalEntityCreator().setCounter( &g_entityCount );
 	GlobalSelectionSystem().addSelectionChangeCallback( FreeCaller<void(const Selectable&), brushCountChanged>() );
+	GlobalSelectionSystem().addSelectionChangeCallback( FreeCaller<void(const Selectable&), Experimental_selectionChanged>() );
 
 	GLWidget_sharedContextCreated = GlobalGL_sharedContextCreated;
 	GLWidget_sharedContextDestroyed = GlobalGL_sharedContextDestroyed;
@@ -2184,4 +3066,3 @@ void MainFrame_Destroy(){
 	g_patchCount.setCountChangedCallback( Callback<void()>() );
 	g_brushCount.setCountChangedCallback( Callback<void()>() );
 }
-

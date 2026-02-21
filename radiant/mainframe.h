@@ -143,6 +143,8 @@ template<typename Value>
 class LatchedValue;
 typedef LatchedValue<bool> LatchedBool;
 extern LatchedBool g_Layout_enableDetachableMenus;
+extern LatchedBool g_Layout_expiramentalFeatures;
+bool Layout_expiramentalFeaturesEnabled();
 
 
 void Sys_Status( const char* status );

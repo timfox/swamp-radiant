@@ -735,8 +735,12 @@ void Entity_Construct(){
 	if ( game_has_killConnect() )
 		GlobalCommands_insert( "EntitiesKillConnect", makeCallbackF( Entity_killconnectSelected ), QKeySequence( "Shift+K" ) );
 	GlobalCommands_insert( "EntityMovePrimitivesToLast", makeCallbackF( Entity_moveSelectedPrimitivesToLast ), QKeySequence( "Ctrl+M" ) );
+	if( Layout_expiramentalFeaturesEnabled() ){
+		GlobalCommands_insert( "EntityMovePrimitivesToLastModern", makeCallbackF( Entity_moveSelectedPrimitivesToLast ), QKeySequence( "Ctrl+G" ) );
+	}
 	GlobalCommands_insert( "EntityMovePrimitivesToFirst", makeCallbackF( Entity_moveSelectedPrimitivesToFirst ) );
-	GlobalCommands_insert( "EntityUngroup", makeCallbackF( Entity_ungroup ) );
+	GlobalCommands_insert( "EntityUngroup", makeCallbackF( Entity_ungroup ),
+	                       Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Alt+G" ) : QKeySequence() );
 	GlobalCommands_insert( "EntityUngroupPrimitives", makeCallbackF( Entity_ungroupSelectedPrimitives ) );
 	GlobalCommands_insert( "EntityReloadDefinitions", makeCallbackF( Entity_reloadDefinitions ) );
 
