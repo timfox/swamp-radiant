@@ -50,6 +50,7 @@
 #include <QMenuBar>
 #include <QWidgetAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QBoxLayout>
@@ -73,8 +74,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QProcess>
-#include <QStandardPaths>
+#include <QUrl>
 #include <QClipboard>
 #include <QTextStream>
 #include <QRegularExpression>
@@ -82,6 +85,18 @@
 #include <QOpenGLFunctions>
 #include <QList>
 
+#include <algorithm>
+#include <limits>
+#include <set>
+
+#if __has_include( <QMediaContent> ) && __has_include( <QMediaPlayer> ) && __has_include( <QMediaPlaylist> )
+	#include <QMediaContent>
+	#include <QMediaPlayer>
+	#include <QMediaPlaylist>
+	#define RADIANT_QT_MULTIMEDIA_AVAILABLE 1
+#else
+	#define RADIANT_QT_MULTIMEDIA_AVAILABLE 0
+#endif
 #include "commandlib.h"
 #include "scenelib.h"
 #include "stream/stringstream.h"
@@ -1583,117 +1598,985 @@ void IdTech3Tool_openHubDialog(){
 	dialog.exec();
 }
 
-QProcess* g_audioPreviewProcess{};
-QString g_audioPreviewProgram;
+#if RADIANT_QT_MULTIMEDIA_AVAILABLE
+QDockWidget* g_audioDock{};
+QMediaPlayer* g_audioPlayer{};
+QMediaPlaylist* g_audioPlaylist{};
+QListWidget* g_audioPlaylistView{};
+QSlider* g_audioSeekSlider{};
+QSlider* g_audioVolumeSlider{};
+QLabel* g_audioNowPlayingLabel{};
+QLabel* g_audioTimeLabel{};
 
-QString AudioPreview_findPlayerProgram(){
-	if ( !g_audioPreviewProgram.isEmpty() ) {
-		return g_audioPreviewProgram;
+QString AudioWorkbench_audioFilter(){
+	return "Audio Files (*.mp3 *.ogg *.wav *.flac *.opus *.aac *.m4a);;All Files (*)";
+}
+
+QString AudioWorkbench_formatDuration( qint64 milliseconds ){
+	if ( milliseconds < 0 ) {
+		milliseconds = 0;
 	}
-	for ( const auto& candidate : { "ffplay", "mpv", "vlc", "cvlc", "mpg123", "mplayer", "xdg-open" } )
+	const int secondsTotal = int( milliseconds / 1000 );
+	const int seconds = secondsTotal % 60;
+	const int minutesTotal = secondsTotal / 60;
+	const int minutes = minutesTotal % 60;
+	const int hours = minutesTotal / 60;
+	return hours > 0
+		? QString( "%1:%2:%3" ).arg( hours ).arg( minutes, 2, 10, QLatin1Char( '0' ) ).arg( seconds, 2, 10, QLatin1Char( '0' ) )
+		: QString( "%1:%2" ).arg( minutes ).arg( seconds, 2, 10, QLatin1Char( '0' ) );
+}
+
+void AudioWorkbench_updateNowPlayingLabel(){
+	if ( g_audioNowPlayingLabel == nullptr || g_audioPlaylist == nullptr ) {
+		return;
+	}
+	const int index = g_audioPlaylist->currentIndex();
+	if ( index < 0 || index >= g_audioPlaylist->mediaCount() ) {
+		g_audioNowPlayingLabel->setText( "Now playing: (none)" );
+		return;
+	}
+
+	const auto media = g_audioPlaylist->media( index );
+	const auto filePath = media.canonicalUrl().isLocalFile() ? media.canonicalUrl().toLocalFile() : media.canonicalUrl().toString();
+	const auto title = QFileInfo( filePath ).fileName();
+	g_audioNowPlayingLabel->setText( StringStream( "Now playing: ", title.toUtf8().constData() ).c_str() );
+}
+
+void AudioWorkbench_syncPlaylistView(){
+	if ( g_audioPlaylistView == nullptr || g_audioPlaylist == nullptr ) {
+		return;
+	}
+
+	g_audioPlaylistView->blockSignals( true );
+	g_audioPlaylistView->clear();
+	for ( int i = 0; i < g_audioPlaylist->mediaCount(); ++i )
 	{
-		const auto found = QStandardPaths::findExecutable( candidate );
-		if ( !found.isEmpty() ) {
-			g_audioPreviewProgram = found;
-			break;
+		const auto media = g_audioPlaylist->media( i );
+		const auto url = media.canonicalUrl();
+		const auto path = url.isLocalFile() ? url.toLocalFile() : url.toString();
+		auto* item = new QListWidgetItem( QFileInfo( path ).fileName(), g_audioPlaylistView );
+		item->setToolTip( path );
+		item->setData( Qt::UserRole, path );
+	}
+
+	const int current = g_audioPlaylist->currentIndex();
+	if ( current >= 0 && current < g_audioPlaylistView->count() ) {
+		g_audioPlaylistView->setCurrentRow( current );
+	}
+	g_audioPlaylistView->blockSignals( false );
+
+	AudioWorkbench_updateNowPlayingLabel();
+}
+
+void AudioWorkbench_updateTimeLabel(){
+	if ( g_audioPlayer == nullptr || g_audioTimeLabel == nullptr ) {
+		return;
+	}
+	g_audioTimeLabel->setText(
+	    StringStream(
+	        AudioWorkbench_formatDuration( g_audioPlayer->position() ).toUtf8().constData(),
+	        " / ",
+	        AudioWorkbench_formatDuration( g_audioPlayer->duration() ).toUtf8().constData()
+	    ).c_str()
+	);
+}
+
+void AudioWorkbench_addFiles( const QStringList& files ){
+	if ( g_audioPlaylist == nullptr ) {
+		return;
+	}
+
+	for ( const auto& file : files )
+	{
+		if ( file.isEmpty() ) {
+			continue;
 		}
+		g_audioPlaylist->addMedia( QUrl::fromLocalFile( QFileInfo( file ).absoluteFilePath() ) );
 	}
-	return g_audioPreviewProgram;
+
+	if ( g_audioPlaylist->currentIndex() < 0 && g_audioPlaylist->mediaCount() > 0 ) {
+		g_audioPlaylist->setCurrentIndex( 0 );
+	}
+
+	AudioWorkbench_syncPlaylistView();
 }
 
-void AudioPreview_stop(){
-	if ( g_audioPreviewProcess != nullptr ) {
-		g_audioPreviewProcess->kill();
-		g_audioPreviewProcess->deleteLater();
-		g_audioPreviewProcess = nullptr;
+void AudioWorkbench_createDock( QMainWindow* window ){
+	if ( window == nullptr || g_audioDock != nullptr ) {
+		return;
 	}
+
+	g_audioDock = new QDockWidget( "Music / Playlists", window );
+	g_audioDock->setObjectName( "dock_audio_workbench" );
+
+	auto* root = new QWidget( g_audioDock );
+	auto* layout = new QVBoxLayout( root );
+
+	auto* topButtons = new QHBoxLayout();
+	auto* addFilesButton = new QPushButton( "Add Files...", root );
+	auto* addFolderButton = new QPushButton( "Add Folder...", root );
+	auto* loadPlaylistButton = new QPushButton( "Load Playlist...", root );
+	auto* savePlaylistButton = new QPushButton( "Save Playlist...", root );
+	auto* clearPlaylistButton = new QPushButton( "Clear", root );
+	topButtons->addWidget( addFilesButton );
+	topButtons->addWidget( addFolderButton );
+	topButtons->addWidget( loadPlaylistButton );
+	topButtons->addWidget( savePlaylistButton );
+	topButtons->addWidget( clearPlaylistButton );
+	layout->addLayout( topButtons );
+
+	g_audioPlaylistView = new QListWidget( root );
+	g_audioPlaylistView->setSelectionMode( QAbstractItemView::ExtendedSelection );
+	g_audioPlaylistView->setAlternatingRowColors( true );
+	layout->addWidget( g_audioPlaylistView, 1 );
+
+	auto* editButtons = new QHBoxLayout();
+	auto* removeButton = new QPushButton( "Remove", root );
+	auto* moveUpButton = new QPushButton( "Move Up", root );
+	auto* moveDownButton = new QPushButton( "Move Down", root );
+	editButtons->addWidget( removeButton );
+	editButtons->addWidget( moveUpButton );
+	editButtons->addWidget( moveDownButton );
+	layout->addLayout( editButtons );
+
+	auto* transport = new QHBoxLayout();
+	auto* playButton = new QPushButton( "Play", root );
+	auto* pauseButton = new QPushButton( "Pause", root );
+	auto* stopButton = new QPushButton( "Stop", root );
+	auto* previousButton = new QPushButton( "Prev", root );
+	auto* nextButton = new QPushButton( "Next", root );
+	transport->addWidget( previousButton );
+	transport->addWidget( playButton );
+	transport->addWidget( pauseButton );
+	transport->addWidget( stopButton );
+	transport->addWidget( nextButton );
+	layout->addLayout( transport );
+
+	g_audioSeekSlider = new QSlider( Qt::Horizontal, root );
+	g_audioSeekSlider->setRange( 0, 0 );
+	layout->addWidget( g_audioSeekSlider );
+
+	auto* nowPlayingRow = new QHBoxLayout();
+	g_audioNowPlayingLabel = new QLabel( "Now playing: (none)", root );
+	g_audioNowPlayingLabel->setTextInteractionFlags( Qt::TextSelectableByMouse );
+	g_audioTimeLabel = new QLabel( "0:00 / 0:00", root );
+	nowPlayingRow->addWidget( g_audioNowPlayingLabel, 1 );
+	nowPlayingRow->addWidget( g_audioTimeLabel );
+	layout->addLayout( nowPlayingRow );
+
+	auto* volumeRow = new QHBoxLayout();
+	volumeRow->addWidget( new QLabel( "Volume", root ) );
+	g_audioVolumeSlider = new QSlider( Qt::Horizontal, root );
+	g_audioVolumeSlider->setRange( 0, 100 );
+	g_audioVolumeSlider->setValue( 80 );
+	auto* shuffleCheck = new QCheckBox( "Shuffle", root );
+	auto* loopCheck = new QCheckBox( "Loop", root );
+	volumeRow->addWidget( g_audioVolumeSlider, 1 );
+	volumeRow->addWidget( shuffleCheck );
+	volumeRow->addWidget( loopCheck );
+	layout->addLayout( volumeRow );
+
+	g_audioDock->setWidget( root );
+	window->addDockWidget( Qt::BottomDockWidgetArea, g_audioDock );
+	g_audioDock->hide();
+
+	g_audioPlaylist = new QMediaPlaylist( g_audioDock );
+	g_audioPlayer = new QMediaPlayer( g_audioDock );
+	g_audioPlayer->setPlaylist( g_audioPlaylist );
+	g_audioPlayer->setVolume( g_audioVolumeSlider->value() );
+
+	QObject::connect( addFilesButton, &QPushButton::clicked, [](){
+		const auto files = QFileDialog::getOpenFileNames( MainFrame_getWindow(), "Add Audio Files", QString::fromLatin1( EnginePath_get() ), AudioWorkbench_audioFilter() );
+		AudioWorkbench_addFiles( files );
+	} );
+	QObject::connect( addFolderButton, &QPushButton::clicked, [](){
+		const auto directory = QFileDialog::getExistingDirectory( MainFrame_getWindow(), "Add Audio Folder", QString::fromLatin1( EnginePath_get() ) );
+		if ( directory.isEmpty() ) {
+			return;
+		}
+		QDir dir( directory );
+		QStringList absolutePaths;
+		for ( const auto& file : dir.entryList( { "*.mp3", "*.ogg", "*.wav", "*.flac", "*.opus", "*.aac", "*.m4a" }, QDir::Files, QDir::Name ) )
+		{
+			absolutePaths.push_back( dir.absoluteFilePath( file ) );
+		}
+		AudioWorkbench_addFiles( absolutePaths );
+	} );
+	QObject::connect( loadPlaylistButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist == nullptr ) {
+			return;
+		}
+		const auto path = QFileDialog::getOpenFileName( MainFrame_getWindow(), "Load Playlist", QString::fromLatin1( EnginePath_get() ), "Playlists (*.m3u *.m3u8 *.txt);;All Files (*)" );
+		if ( path.isEmpty() ) {
+			return;
+		}
+		QFile file( path );
+		if ( !file.open( QIODevice::ReadOnly | QIODevice::Text ) ) {
+			QMessageBox::warning( MainFrame_getWindow(), "Load playlist", "Failed to open playlist file." );
+			return;
+		}
+
+		g_audioPlaylist->clear();
+		QTextStream stream( &file );
+		QDir baseDir = QFileInfo( path ).absoluteDir();
+		while ( !stream.atEnd() )
+		{
+			const auto raw = stream.readLine().trimmed();
+			if ( raw.isEmpty() || raw.startsWith( '#' ) ) {
+				continue;
+			}
+			const auto resolved = QFileInfo( raw ).isAbsolute() ? raw : baseDir.absoluteFilePath( raw );
+			g_audioPlaylist->addMedia( QUrl::fromLocalFile( QFileInfo( resolved ).absoluteFilePath() ) );
+		}
+		if ( g_audioPlaylist->mediaCount() > 0 ) {
+			g_audioPlaylist->setCurrentIndex( 0 );
+		}
+		AudioWorkbench_syncPlaylistView();
+	} );
+	QObject::connect( savePlaylistButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist == nullptr ) {
+			return;
+		}
+		const auto path = QFileDialog::getSaveFileName( MainFrame_getWindow(), "Save Playlist", QString::fromLatin1( EnginePath_get() ), "M3U Playlist (*.m3u)" );
+		if ( path.isEmpty() ) {
+			return;
+		}
+
+		QFile file( path );
+		if ( !file.open( QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate ) ) {
+			QMessageBox::warning( MainFrame_getWindow(), "Save playlist", "Failed to write playlist file." );
+			return;
+		}
+
+		QTextStream out( &file );
+		out << "#EXTM3U\n";
+		for ( int i = 0; i < g_audioPlaylist->mediaCount(); ++i )
+		{
+			const auto url = g_audioPlaylist->media( i ).canonicalUrl();
+			out << ( url.isLocalFile() ? url.toLocalFile() : url.toString() ) << '\n';
+		}
+	} );
+	QObject::connect( clearPlaylistButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist != nullptr ) {
+			g_audioPlayer->stop();
+			g_audioPlaylist->clear();
+			AudioWorkbench_syncPlaylistView();
+			AudioWorkbench_updateTimeLabel();
+		}
+	} );
+	QObject::connect( removeButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist == nullptr || g_audioPlaylistView == nullptr ) {
+			return;
+		}
+		auto indexes = g_audioPlaylistView->selectionModel()->selectedRows();
+		std::sort( indexes.begin(), indexes.end(), []( const QModelIndex& a, const QModelIndex& b ){ return a.row() > b.row(); } );
+		for ( const auto& index : indexes )
+		{
+			g_audioPlaylist->removeMedia( index.row() );
+		}
+		if ( g_audioPlaylist->mediaCount() == 0 ) {
+			g_audioPlayer->stop();
+		}
+		else if ( g_audioPlaylist->currentIndex() < 0 ) {
+			g_audioPlaylist->setCurrentIndex( 0 );
+		}
+		AudioWorkbench_syncPlaylistView();
+	} );
+	QObject::connect( moveUpButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist == nullptr || g_audioPlaylistView == nullptr ) {
+			return;
+		}
+		const int row = g_audioPlaylistView->currentRow();
+		if ( row <= 0 || row >= g_audioPlaylist->mediaCount() ) {
+			return;
+		}
+		const auto media = g_audioPlaylist->media( row );
+		g_audioPlaylist->removeMedia( row );
+		g_audioPlaylist->insertMedia( row - 1, media );
+		g_audioPlaylist->setCurrentIndex( row - 1 );
+		AudioWorkbench_syncPlaylistView();
+	} );
+	QObject::connect( moveDownButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist == nullptr || g_audioPlaylistView == nullptr ) {
+			return;
+		}
+		const int row = g_audioPlaylistView->currentRow();
+		if ( row < 0 || row + 1 >= g_audioPlaylist->mediaCount() ) {
+			return;
+		}
+		const auto media = g_audioPlaylist->media( row );
+		g_audioPlaylist->removeMedia( row );
+		g_audioPlaylist->insertMedia( row + 1, media );
+		g_audioPlaylist->setCurrentIndex( row + 1 );
+		AudioWorkbench_syncPlaylistView();
+	} );
+
+	QObject::connect( g_audioPlaylistView, &QListWidget::itemDoubleClicked, []( QListWidgetItem* item ){
+		if ( item == nullptr || g_audioPlaylist == nullptr || g_audioPlayer == nullptr ) {
+			return;
+		}
+		const int row = g_audioPlaylistView->row( item );
+		if ( row >= 0 ) {
+			g_audioPlaylist->setCurrentIndex( row );
+			g_audioPlayer->play();
+		}
+	} );
+	QObject::connect( g_audioPlaylistView, &QListWidget::currentRowChanged, []( int row ){
+		if ( g_audioPlaylist != nullptr && row >= 0 && row < g_audioPlaylist->mediaCount() ) {
+			g_audioPlaylist->setCurrentIndex( row );
+		}
+	} );
+
+	QObject::connect( playButton, &QPushButton::clicked, [](){
+		if ( g_audioPlayer == nullptr || g_audioPlaylist == nullptr || g_audioPlaylist->mediaCount() == 0 ) {
+			return;
+		}
+		if ( g_audioPlaylist->currentIndex() < 0 ) {
+			g_audioPlaylist->setCurrentIndex( 0 );
+		}
+		g_audioPlayer->play();
+	} );
+	QObject::connect( pauseButton, &QPushButton::clicked, [](){
+		if ( g_audioPlayer != nullptr ) {
+			g_audioPlayer->pause();
+		}
+	} );
+	QObject::connect( stopButton, &QPushButton::clicked, [](){
+		if ( g_audioPlayer != nullptr ) {
+			g_audioPlayer->stop();
+		}
+	} );
+	QObject::connect( previousButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist != nullptr ) {
+			g_audioPlaylist->previous();
+		}
+	} );
+	QObject::connect( nextButton, &QPushButton::clicked, [](){
+		if ( g_audioPlaylist != nullptr ) {
+			g_audioPlaylist->next();
+		}
+	} );
+
+	QObject::connect( g_audioSeekSlider, &QSlider::sliderMoved, []( int value ){
+		if ( g_audioPlayer != nullptr ) {
+			g_audioPlayer->setPosition( value );
+		}
+	} );
+	QObject::connect( g_audioVolumeSlider, &QSlider::valueChanged, []( int value ){
+		if ( g_audioPlayer != nullptr ) {
+			g_audioPlayer->setVolume( value );
+		}
+	} );
+	QObject::connect( shuffleCheck, &QCheckBox::toggled, [loopCheck]( bool shuffleEnabled ){
+		if ( g_audioPlaylist == nullptr ) {
+			return;
+		}
+		if ( shuffleEnabled ) {
+			g_audioPlaylist->setPlaybackMode( QMediaPlaylist::Random );
+		}
+		else{
+			g_audioPlaylist->setPlaybackMode( loopCheck->isChecked() ? QMediaPlaylist::Loop : QMediaPlaylist::Sequential );
+		}
+	} );
+	QObject::connect( loopCheck, &QCheckBox::toggled, [shuffleCheck]( bool loopEnabled ){
+		if ( g_audioPlaylist == nullptr || shuffleCheck->isChecked() ) {
+			return;
+		}
+		g_audioPlaylist->setPlaybackMode( loopEnabled ? QMediaPlaylist::Loop : QMediaPlaylist::Sequential );
+	} );
+
+	QObject::connect( g_audioPlayer, &QMediaPlayer::positionChanged, []( qint64 position ){
+		if ( g_audioSeekSlider != nullptr && !g_audioSeekSlider->isSliderDown() ) {
+			g_audioSeekSlider->setValue( int( position ) );
+		}
+		AudioWorkbench_updateTimeLabel();
+	} );
+	QObject::connect( g_audioPlayer, &QMediaPlayer::durationChanged, []( qint64 duration ){
+		if ( g_audioSeekSlider != nullptr ) {
+			g_audioSeekSlider->setRange( 0, int( qBound<qint64>( 0, duration, std::numeric_limits<int>::max() ) ) );
+		}
+		AudioWorkbench_updateTimeLabel();
+	} );
+	QObject::connect( g_audioPlaylist, &QMediaPlaylist::currentIndexChanged, []( int currentIndex ){
+		if ( g_audioPlaylistView != nullptr && currentIndex >= 0 && currentIndex < g_audioPlaylistView->count() ) {
+			g_audioPlaylistView->setCurrentRow( currentIndex );
+		}
+		AudioWorkbench_updateNowPlayingLabel();
+	} );
+	QObject::connect( g_audioPlayer, QOverload<QMediaPlayer::Error>::of( &QMediaPlayer::error ), []( QMediaPlayer::Error error ){
+		if ( error == QMediaPlayer::NoError || g_audioPlayer == nullptr ) {
+			return;
+		}
+		globalWarningStream() << "audio playback error: " << g_audioPlayer->errorString().toUtf8().constData() << '\n';
+	} );
+
+	AudioWorkbench_syncPlaylistView();
+	AudioWorkbench_updateTimeLabel();
 }
 
-bool AudioPreview_playFile( const QString& filePath, int volumePercent ){
-	AudioPreview_stop();
-	const auto program = AudioPreview_findPlayerProgram();
-	if ( program.isEmpty() ) {
+void AudioWorkbench_open(){
+	if ( g_audioDock == nullptr ) {
+		return;
+	}
+	g_audioDock->show();
+	g_audioDock->raise();
+}
+
+void AudioWorkbench_stopAndRelease(){
+	if ( g_audioPlayer != nullptr ) {
+		g_audioPlayer->stop();
+	}
+	g_audioDock = nullptr;
+	g_audioPlayer = nullptr;
+	g_audioPlaylist = nullptr;
+	g_audioPlaylistView = nullptr;
+	g_audioSeekSlider = nullptr;
+	g_audioVolumeSlider = nullptr;
+	g_audioNowPlayingLabel = nullptr;
+	g_audioTimeLabel = nullptr;
+}
+#else
+void AudioWorkbench_createDock( QMainWindow* ){
+}
+
+void AudioWorkbench_open(){
+	QMessageBox::warning(
+	    MainFrame_getWindow(),
+	    "Music Player / Playlist Editor",
+	    "This build does not include Qt Multimedia.\nInstall Qt5Multimedia development files and rebuild."
+	);
+}
+
+void AudioWorkbench_stopAndRelease(){
+}
+#endif
+
+QDockWidget* g_spreadsheetDock{};
+QTableWidget* g_spreadsheetTable{};
+QLineEdit* g_spreadsheetFormulaEdit{};
+QLabel* g_spreadsheetStatusLabel{};
+bool g_spreadsheetUpdating{};
+
+QString Spreadsheet_columnName( int column ){
+	QString result;
+	int value = column;
+	do {
+		result.prepend( QChar( 'A' + ( value % 26 ) ) );
+		value = value / 26 - 1;
+	} while ( value >= 0 );
+	return result;
+}
+
+QString Spreadsheet_cellRef( int row, int column ){
+	return StringStream( Spreadsheet_columnName( column ).toUtf8().constData(), row + 1 ).c_str();
+}
+
+bool Spreadsheet_parseCellRef( const QString& token, int& row, int& column ){
+	if ( token.isEmpty() ) {
 		return false;
 	}
-	QStringList args;
-	const auto exeName = QFileInfo( program ).fileName();
-	if ( exeName == "ffplay" ) {
-		args << "-nodisp" << "-autoexit" << "-loglevel" << "quiet" << "-volume" << QString::number( qBound( 0, volumePercent, 100 ) ) << filePath;
+
+	int i = 0;
+	column = 0;
+	while ( i < token.size() && token[i].isLetter() )
+	{
+		column = column * 26 + ( token[i].toUpper().unicode() - 'A' + 1 );
+		++i;
 	}
-	else if ( exeName == "mpv" ) {
-		args << "--no-video" << "--really-quiet" << "--volume" << QString::number( qBound( 0, volumePercent, 100 ) ) << filePath;
+	if ( i == 0 || i >= token.size() ) {
+		return false;
 	}
-	else if ( exeName == "vlc" || exeName == "cvlc" ) {
-		args << "--play-and-exit" << "--intf" << "dummy" << filePath;
-	}
-	else if ( exeName == "xdg-open" ) {
-		args << filePath;
-	}
-	else{
-		args << filePath;
-	}
-	g_audioPreviewProcess = new QProcess( MainFrame_getWindow() );
-	g_audioPreviewProcess->setProgram( program );
-	g_audioPreviewProcess->setArguments( args );
-	g_audioPreviewProcess->start();
-	return g_audioPreviewProcess->waitForStarted( 2000 );
+
+	bool ok = false;
+	row = token.mid( i ).toInt( &ok ) - 1;
+	column -= 1;
+	return ok && row >= 0 && column >= 0;
 }
 
-void AudioPreview_openDialog(){
-	QDialog dialog( MainFrame_getWindow() );
-	dialog.setWindowTitle( "Audio Preview (MP3 / OGG / WAV)" );
-	dialog.setModal( true );
-	dialog.resize( 700, 180 );
+QString Spreadsheet_rawCellText( int row, int column ){
+	if ( g_spreadsheetTable == nullptr ) {
+		return "";
+	}
+	if ( auto* item = g_spreadsheetTable->item( row, column ) ) {
+		const auto raw = item->data( Qt::UserRole ).toString();
+		return raw.isNull() ? item->text() : raw;
+	}
+	return "";
+}
 
-	auto* root = new QVBoxLayout( &dialog );
-	auto* form = new QFormLayout();
-	auto* pathRow = new QHBoxLayout();
-	auto* pathEdit = new QLineEdit( &dialog );
-	pathEdit->setPlaceholderText( "Choose a sound file..." );
-	auto* browseButton = new QPushButton( "Browse...", &dialog );
-	pathRow->addWidget( pathEdit, 1 );
-	pathRow->addWidget( browseButton );
-	auto* pathWidget = new QWidget( &dialog );
-	pathWidget->setLayout( pathRow );
-	form->addRow( "File", pathWidget );
+double Spreadsheet_evalCell( int row, int column, std::set<quint64>& stack, bool& ok );
 
-	auto* volumeSlider = new QSlider( Qt::Horizontal, &dialog );
-	volumeSlider->setRange( 0, 100 );
-	volumeSlider->setValue( 80 );
-	form->addRow( "Volume", volumeSlider );
-	root->addLayout( form );
+struct SpreadsheetExpressionParser
+{
+	const QString& m_expr;
+	int m_pos{};
+	std::set<quint64>& m_stack;
+	bool m_ok{ true };
 
-	auto* buttons = new QDialogButtonBox( &dialog );
-	auto* playButton = buttons->addButton( "Play", QDialogButtonBox::ActionRole );
-	auto* stopButton = buttons->addButton( "Stop", QDialogButtonBox::ActionRole );
-	auto* closeButton = buttons->addButton( QDialogButtonBox::Close );
-	root->addWidget( buttons );
-
-	QObject::connect( browseButton, &QPushButton::clicked, [&](){
-		const auto startPath = pathEdit->text().isEmpty() ? QString::fromLatin1( EnginePath_get() ) : QFileInfo( pathEdit->text() ).absolutePath();
-		const auto selected = QFileDialog::getOpenFileName( &dialog, "Select Audio File", startPath, "Audio Files (*.mp3 *.ogg *.wav *.flac);;All Files (*)" );
-		if ( !selected.isEmpty() ) {
-			pathEdit->setText( selected );
+	double parseExpression( int currentRow, int currentColumn ){
+		double value = parseTerm( currentRow, currentColumn );
+		while ( m_ok )
+		{
+			skipSpaces();
+			if ( consume( '+' ) ) {
+				value += parseTerm( currentRow, currentColumn );
+			}
+			else if ( consume( '-' ) ) {
+				value -= parseTerm( currentRow, currentColumn );
+			}
+			else{
+				break;
+			}
 		}
-	} );
-	QObject::connect( playButton, &QPushButton::clicked, [&](){
-		const auto file = pathEdit->text().trimmed();
-		if ( file.isEmpty() ) {
+		return value;
+	}
+
+	double parseTerm( int currentRow, int currentColumn ){
+		double value = parseFactor( currentRow, currentColumn );
+		while ( m_ok )
+		{
+			skipSpaces();
+			if ( consume( '*' ) ) {
+				value *= parseFactor( currentRow, currentColumn );
+			}
+			else if ( consume( '/' ) ) {
+				const double divisor = parseFactor( currentRow, currentColumn );
+				if ( divisor == 0.0 ) {
+					m_ok = false;
+					return 0.0;
+				}
+				value /= divisor;
+			}
+			else{
+				break;
+			}
+		}
+		return value;
+	}
+
+	double parseFactor( int currentRow, int currentColumn ){
+		skipSpaces();
+		if ( consume( '+' ) ) {
+			return parseFactor( currentRow, currentColumn );
+		}
+		if ( consume( '-' ) ) {
+			return -parseFactor( currentRow, currentColumn );
+		}
+		if ( consume( '(' ) ) {
+			const double value = parseExpression( currentRow, currentColumn );
+			if ( !consume( ')' ) ) {
+				m_ok = false;
+			}
+			return value;
+		}
+
+		if ( m_pos < m_expr.size() && m_expr[m_pos].isLetter() ) {
+			QString token;
+			while ( m_pos < m_expr.size() && m_expr[m_pos].isLetterOrNumber() )
+			{
+				token += m_expr[m_pos++];
+			}
+			int row = 0;
+			int column = 0;
+			if ( !Spreadsheet_parseCellRef( token, row, column ) ) {
+				m_ok = false;
+				return 0.0;
+			}
+			return Spreadsheet_evalCell( row, column, m_stack, m_ok );
+		}
+
+		QString number;
+		bool hasDot{};
+		while ( m_pos < m_expr.size() )
+		{
+			const auto c = m_expr[m_pos];
+			if ( c.isDigit() ) {
+				number += c;
+				++m_pos;
+			}
+			else if ( c == '.' && !hasDot ) {
+				hasDot = true;
+				number += c;
+				++m_pos;
+			}
+			else{
+				break;
+			}
+		}
+		bool ok = false;
+		const double value = number.toDouble( &ok );
+		if ( !ok ) {
+			m_ok = false;
+			return 0.0;
+		}
+		return value;
+	}
+
+	void skipSpaces(){
+		while ( m_pos < m_expr.size() && m_expr[m_pos].isSpace() )
+		{
+			++m_pos;
+		}
+	}
+
+	bool consume( QChar c ){
+		skipSpaces();
+		if ( m_pos < m_expr.size() && m_expr[m_pos] == c ) {
+			++m_pos;
+			return true;
+		}
+		return false;
+	}
+};
+
+double Spreadsheet_evalCell( int row, int column, std::set<quint64>& stack, bool& ok ){
+	ok = true;
+	if ( g_spreadsheetTable == nullptr ) {
+		return 0.0;
+	}
+	if ( row < 0 || column < 0 || row >= g_spreadsheetTable->rowCount() || column >= g_spreadsheetTable->columnCount() ) {
+		ok = false;
+		return 0.0;
+	}
+
+	const quint64 key = ( quint64( row ) << 32 ) | quint64( column );
+	if ( stack.find( key ) != stack.end() ) {
+		ok = false;
+		return 0.0;
+	}
+	stack.insert( key );
+
+	const auto raw = Spreadsheet_rawCellText( row, column ).trimmed();
+	if ( !raw.startsWith( '=' ) ) {
+		bool numeric = false;
+		const auto number = raw.toDouble( &numeric );
+		stack.erase( key );
+		if ( raw.isEmpty() ) {
+			return 0.0;
+		}
+		if ( numeric ) {
+			return number;
+		}
+		ok = false;
+		return 0.0;
+	}
+
+	const auto expression = raw.mid( 1 );
+	SpreadsheetExpressionParser parser{ expression, 0, stack, true };
+	const double value = parser.parseExpression( row, column );
+	parser.skipSpaces();
+	ok = parser.m_ok && parser.m_pos == expression.size();
+	stack.erase( key );
+	return ok ? value : 0.0;
+}
+
+void Spreadsheet_refreshHeaders(){
+	if ( g_spreadsheetTable == nullptr ) {
+		return;
+	}
+	QStringList horizontal;
+	for ( int c = 0; c < g_spreadsheetTable->columnCount(); ++c )
+	{
+		horizontal.push_back( Spreadsheet_columnName( c ) );
+	}
+	g_spreadsheetTable->setHorizontalHeaderLabels( horizontal );
+
+	QStringList vertical;
+	for ( int r = 0; r < g_spreadsheetTable->rowCount(); ++r )
+	{
+		vertical.push_back( QString::number( r + 1 ) );
+	}
+	g_spreadsheetTable->setVerticalHeaderLabels( vertical );
+}
+
+void Spreadsheet_recalculateAll(){
+	if ( g_spreadsheetTable == nullptr ) {
+		return;
+	}
+	g_spreadsheetUpdating = true;
+	g_spreadsheetTable->blockSignals( true );
+	for ( int row = 0; row < g_spreadsheetTable->rowCount(); ++row )
+	{
+		for ( int column = 0; column < g_spreadsheetTable->columnCount(); ++column )
+		{
+			auto* item = g_spreadsheetTable->item( row, column );
+			if ( item == nullptr ) {
+				item = new QTableWidgetItem();
+				g_spreadsheetTable->setItem( row, column, item );
+			}
+			const auto raw = Spreadsheet_rawCellText( row, column );
+			if ( raw.startsWith( '=' ) ) {
+				bool ok = false;
+				std::set<quint64> stack;
+				const auto value = Spreadsheet_evalCell( row, column, stack, ok );
+				item->setText( ok ? QString::number( value, 'g', 15 ) : "#ERR" );
+			}
+			else{
+				item->setText( raw );
+			}
+			item->setData( Qt::UserRole, raw );
+		}
+	}
+	g_spreadsheetTable->blockSignals( false );
+	g_spreadsheetUpdating = false;
+}
+
+QStringList Spreadsheet_splitCSVLine( const QString& line ){
+	QStringList out;
+	QString field;
+	bool inQuotes{};
+	for ( int i = 0; i < line.size(); ++i )
+	{
+		const auto c = line[i];
+		if ( c == '"' ) {
+			if ( inQuotes && i + 1 < line.size() && line[i + 1] == '"' ) {
+				field += '"';
+				++i;
+			}
+			else{
+				inQuotes = !inQuotes;
+			}
+		}
+		else if ( c == ',' && !inQuotes ) {
+			out.push_back( field );
+			field.clear();
+		}
+		else{
+			field += c;
+		}
+	}
+	out.push_back( field );
+	return out;
+}
+
+QString Spreadsheet_joinCSVLine( const QStringList& fields ){
+	QStringList escaped;
+	for ( const auto& field : fields )
+	{
+		QString value = field;
+		value.replace( "\"", "\"\"" );
+		if ( value.contains( ',' ) || value.contains( '"' ) || value.contains( '\n' ) ) {
+			value = StringStream( "\"", value.toUtf8().constData(), "\"" ).c_str();
+		}
+		escaped.push_back( value );
+	}
+	return escaped.join( ',' );
+}
+
+void Spreadsheet_applyFormulaEdit(){
+	if ( g_spreadsheetTable == nullptr || g_spreadsheetFormulaEdit == nullptr ) {
+		return;
+	}
+	auto* item = g_spreadsheetTable->currentItem();
+	if ( item == nullptr ) {
+		const int row = g_spreadsheetTable->currentRow() >= 0 ? g_spreadsheetTable->currentRow() : 0;
+		const int column = g_spreadsheetTable->currentColumn() >= 0 ? g_spreadsheetTable->currentColumn() : 0;
+		item = new QTableWidgetItem();
+		g_spreadsheetTable->setItem( row, column, item );
+		g_spreadsheetTable->setCurrentItem( item );
+	}
+	item->setData( Qt::UserRole, g_spreadsheetFormulaEdit->text() );
+	Spreadsheet_recalculateAll();
+}
+
+void Spreadsheet_open(){
+	if ( g_spreadsheetDock == nullptr ) {
+		return;
+	}
+	g_spreadsheetDock->show();
+	g_spreadsheetDock->raise();
+}
+
+void Spreadsheet_createDock( QMainWindow* window ){
+	if ( window == nullptr || g_spreadsheetDock != nullptr ) {
+		return;
+	}
+
+	g_spreadsheetDock = new QDockWidget( "Spreadsheet", window );
+	g_spreadsheetDock->setObjectName( "dock_spreadsheet_workbench" );
+
+	auto* root = new QWidget( g_spreadsheetDock );
+	auto* layout = new QVBoxLayout( root );
+
+	auto* topButtons = new QHBoxLayout();
+	auto* newButton = new QPushButton( "New", root );
+	auto* openButton = new QPushButton( "Open CSV...", root );
+	auto* saveButton = new QPushButton( "Save CSV...", root );
+	auto* addRowButton = new QPushButton( "Add Row", root );
+	auto* addColumnButton = new QPushButton( "Add Column", root );
+	auto* recalcButton = new QPushButton( "Recalculate", root );
+	topButtons->addWidget( newButton );
+	topButtons->addWidget( openButton );
+	topButtons->addWidget( saveButton );
+	topButtons->addWidget( addRowButton );
+	topButtons->addWidget( addColumnButton );
+	topButtons->addWidget( recalcButton );
+	layout->addLayout( topButtons );
+
+	auto* formulaRow = new QHBoxLayout();
+	formulaRow->addWidget( new QLabel( "Formula", root ) );
+	g_spreadsheetFormulaEdit = new QLineEdit( root );
+	auto* applyFormulaButton = new QPushButton( "Apply", root );
+	formulaRow->addWidget( g_spreadsheetFormulaEdit, 1 );
+	formulaRow->addWidget( applyFormulaButton );
+	layout->addLayout( formulaRow );
+
+	g_spreadsheetTable = new QTableWidget( 50, 16, root );
+	g_spreadsheetTable->horizontalHeader()->setSectionResizeMode( QHeaderView::Interactive );
+	g_spreadsheetTable->horizontalHeader()->setDefaultSectionSize( 110 );
+	g_spreadsheetTable->verticalHeader()->setDefaultSectionSize( 24 );
+	g_spreadsheetTable->setAlternatingRowColors( true );
+	layout->addWidget( g_spreadsheetTable, 1 );
+
+	g_spreadsheetStatusLabel = new QLabel( "Ready", root );
+	layout->addWidget( g_spreadsheetStatusLabel );
+
+	Spreadsheet_refreshHeaders();
+	Spreadsheet_recalculateAll();
+
+	QObject::connect( g_spreadsheetTable, &QTableWidget::itemSelectionChanged, [](){
+		if ( g_spreadsheetTable == nullptr || g_spreadsheetFormulaEdit == nullptr || g_spreadsheetStatusLabel == nullptr ) {
 			return;
 		}
-		if ( !QFileInfo::exists( file ) ) {
-			QMessageBox::warning( &dialog, "Missing file", "Selected file does not exist." );
-			return;
+		auto* item = g_spreadsheetTable->currentItem();
+		if ( item != nullptr ) {
+			const auto raw = item->data( Qt::UserRole ).toString();
+			g_spreadsheetFormulaEdit->setText( raw.isNull() ? item->text() : raw );
+			g_spreadsheetStatusLabel->setText( StringStream( "Cell ", Spreadsheet_cellRef( item->row(), item->column() ).toUtf8().constData() ).c_str() );
 		}
-		if ( !AudioPreview_playFile( file, volumeSlider->value() ) ) {
-			QMessageBox::warning( &dialog, "No player found", "Install ffplay/mpv/vlc (or set xdg-open) to preview audio." );
+		else{
+			g_spreadsheetFormulaEdit->clear();
+			g_spreadsheetStatusLabel->setText( "Ready" );
 		}
 	} );
-	QObject::connect( stopButton, &QPushButton::clicked, &dialog, [](){ AudioPreview_stop(); } );
-	QObject::connect( closeButton, &QPushButton::clicked, &dialog, &QDialog::reject );
-	QObject::connect( &dialog, &QDialog::rejected, [](){ AudioPreview_stop(); } );
+	QObject::connect( g_spreadsheetTable, &QTableWidget::itemChanged, []( QTableWidgetItem* item ){
+		if ( item == nullptr || g_spreadsheetUpdating ) {
+			return;
+		}
+		item->setData( Qt::UserRole, item->text() );
+		Spreadsheet_recalculateAll();
+	} );
+	QObject::connect( applyFormulaButton, &QPushButton::clicked, [](){ Spreadsheet_applyFormulaEdit(); } );
+	QObject::connect( g_spreadsheetFormulaEdit, &QLineEdit::returnPressed, [](){ Spreadsheet_applyFormulaEdit(); } );
 
-	dialog.exec();
+	QObject::connect( newButton, &QPushButton::clicked, [](){
+		if ( g_spreadsheetTable == nullptr ) {
+			return;
+		}
+		g_spreadsheetTable->clearContents();
+		g_spreadsheetTable->setRowCount( 50 );
+		g_spreadsheetTable->setColumnCount( 16 );
+		Spreadsheet_refreshHeaders();
+		Spreadsheet_recalculateAll();
+	} );
+	QObject::connect( addRowButton, &QPushButton::clicked, [](){
+		if ( g_spreadsheetTable == nullptr ) {
+			return;
+		}
+		g_spreadsheetTable->setRowCount( g_spreadsheetTable->rowCount() + 1 );
+		Spreadsheet_refreshHeaders();
+	} );
+	QObject::connect( addColumnButton, &QPushButton::clicked, [](){
+		if ( g_spreadsheetTable == nullptr ) {
+			return;
+		}
+		g_spreadsheetTable->setColumnCount( g_spreadsheetTable->columnCount() + 1 );
+		Spreadsheet_refreshHeaders();
+	} );
+	QObject::connect( recalcButton, &QPushButton::clicked, [](){ Spreadsheet_recalculateAll(); } );
+	QObject::connect( openButton, &QPushButton::clicked, [](){
+		if ( g_spreadsheetTable == nullptr ) {
+			return;
+		}
+		const auto path = QFileDialog::getOpenFileName( MainFrame_getWindow(), "Open Spreadsheet CSV", QString::fromLatin1( EnginePath_get() ), "CSV Files (*.csv);;All Files (*)" );
+		if ( path.isEmpty() ) {
+			return;
+		}
+
+		QFile file( path );
+		if ( !file.open( QIODevice::ReadOnly | QIODevice::Text ) ) {
+			QMessageBox::warning( MainFrame_getWindow(), "Spreadsheet", "Failed to open CSV file." );
+			return;
+		}
+
+		QTextStream in( &file );
+		QVector<QStringList> rows;
+		int maxColumns = 0;
+		while ( !in.atEnd() )
+		{
+			const auto fields = Spreadsheet_splitCSVLine( in.readLine() );
+			maxColumns = std::max( maxColumns, fields.size() );
+			rows.push_back( fields );
+		}
+
+		g_spreadsheetTable->clearContents();
+		g_spreadsheetTable->setRowCount( std::max( 50, rows.size() ) );
+		g_spreadsheetTable->setColumnCount( std::max( 16, maxColumns ) );
+		Spreadsheet_refreshHeaders();
+
+		for ( int r = 0; r < rows.size(); ++r )
+		{
+			for ( int c = 0; c < rows[r].size(); ++c )
+			{
+				auto* item = new QTableWidgetItem();
+				item->setData( Qt::UserRole, rows[r][c] );
+				item->setText( rows[r][c] );
+				g_spreadsheetTable->setItem( r, c, item );
+			}
+		}
+		Spreadsheet_recalculateAll();
+	} );
+	QObject::connect( saveButton, &QPushButton::clicked, [](){
+		if ( g_spreadsheetTable == nullptr ) {
+			return;
+		}
+		const auto path = QFileDialog::getSaveFileName( MainFrame_getWindow(), "Save Spreadsheet CSV", QString::fromLatin1( EnginePath_get() ), "CSV Files (*.csv)" );
+		if ( path.isEmpty() ) {
+			return;
+		}
+
+		QFile file( path );
+		if ( !file.open( QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate ) ) {
+			QMessageBox::warning( MainFrame_getWindow(), "Spreadsheet", "Failed to save CSV file." );
+			return;
+		}
+
+		int lastRow = -1;
+		int lastColumn = -1;
+		for ( int r = 0; r < g_spreadsheetTable->rowCount(); ++r )
+		{
+			for ( int c = 0; c < g_spreadsheetTable->columnCount(); ++c )
+			{
+				if ( !Spreadsheet_rawCellText( r, c ).isEmpty() ) {
+					lastRow = std::max( lastRow, r );
+					lastColumn = std::max( lastColumn, c );
+				}
+			}
+		}
+
+		QTextStream out( &file );
+		for ( int r = 0; r <= lastRow; ++r )
+		{
+			QStringList fields;
+			for ( int c = 0; c <= lastColumn; ++c )
+			{
+				fields.push_back( Spreadsheet_rawCellText( r, c ) );
+			}
+			out << Spreadsheet_joinCSVLine( fields ) << '\n';
+		}
+	} );
+
+	g_spreadsheetDock->setWidget( root );
+	window->addDockWidget( Qt::BottomDockWidgetArea, g_spreadsheetDock );
+	g_spreadsheetDock->hide();
+}
+
+void Spreadsheet_stopAndRelease(){
+	g_spreadsheetDock = nullptr;
+	g_spreadsheetTable = nullptr;
+	g_spreadsheetFormulaEdit = nullptr;
+	g_spreadsheetStatusLabel = nullptr;
+	g_spreadsheetUpdating = false;
 }
 
 void Layout_setStyleAndRequestRestart( MainFrame::EViewStyle style, const char* name ){
@@ -2091,7 +2974,8 @@ void create_tools_menu( QMenuBar *menubar ){
 	menu->setTearOffEnabled( g_Layout_enableDetachableMenus.m_value );
 
 	create_menu_item_with_mnemonic( menu, "Id Tech 3 Tool Center...", "OpenIdTech3ToolCenter" );
-	create_menu_item_with_mnemonic( menu, "Audio Preview (MP3/OGG/WAV)...", "OpenAudioPreview" );
+	create_menu_item_with_mnemonic( menu, "Music Player / Playlist Editor", "OpenAudioWorkbench" );
+	create_menu_item_with_mnemonic( menu, "Spreadsheet Editor", "OpenSpreadsheetWorkbench" );
 	menu->addSeparator();
 	create_menu_item_with_mnemonic( menu, "Q3Map2++ Help", "ToolQ3Map2Help" );
 	create_menu_item_with_mnemonic( menu, "QData3++ Help", "ToolQData3Help" );
@@ -2784,6 +3668,8 @@ void MainFrame::Create(){
 	AddGridChangeCallback( FreeCaller<void(), XY_UpdateAllWindows>() );
 
 	Experimental_createDocks( window );
+	AudioWorkbench_createDock( window );
+	Spreadsheet_createDock( window );
 
 	s_qe_every_second_timer.enable();
 
@@ -2837,7 +3723,8 @@ void MainFrame::Shutdown(){
 	GroupDialog_destroyWindow();
 
 	Experimental_destroyDocks();
-	AudioPreview_stop();
+	AudioWorkbench_stopAndRelease();
+	Spreadsheet_stopAndRelease();
 
 	user_shortcuts_save();
 }
@@ -2997,7 +3884,9 @@ void MainFrame_Construct(){
 	GlobalCommands_insert( "AddMiscModel", makeCallbackF( Add_createMiscModel ) );
 	GlobalCommands_insert( "LayoutHammerFourPane", makeCallbackF( Layout_setHammerFourPane ) );
 	GlobalCommands_insert( "OpenIdTech3ToolCenter", makeCallbackF( IdTech3Tool_openHubDialog ) );
-	GlobalCommands_insert( "OpenAudioPreview", makeCallbackF( AudioPreview_openDialog ) );
+	GlobalCommands_insert( "OpenAudioWorkbench", makeCallbackF( AudioWorkbench_open ) );
+	GlobalCommands_insert( "OpenSpreadsheetWorkbench", makeCallbackF( Spreadsheet_open ) );
+	GlobalCommands_insert( "OpenAudioPreview", makeCallbackF( AudioWorkbench_open ) ); // backward-compatible command name
 	GlobalCommands_insert( "ToolQ3Map2Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[0] ); } ) );
 	GlobalCommands_insert( "ToolQData3Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[1] ); } ) );
 	GlobalCommands_insert( "ToolQ2MapHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[2] ); } ) );
