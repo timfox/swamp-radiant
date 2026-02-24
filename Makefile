@@ -90,6 +90,10 @@ CPPFLAGS_QTMULTIMEDIA ?= $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKGCONFIG)
 LIBS_QTMULTIMEDIA     ?= $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKGCONFIG) Qt5Multimedia --libs-only-L --libs-only-l $(STDERR_TO_DEVNULL))
 CPPFLAGS_QTMULTIMEDIA := $(CPPFLAGS_QTMULTIMEDIA)
 LIBS_QTMULTIMEDIA     := $(LIBS_QTMULTIMEDIA)
+CPPFLAGS_QTMULTIMEDIAWIDGETS ?= $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKGCONFIG) Qt5MultimediaWidgets --cflags $(STDERR_TO_DEVNULL)) -DQT_NO_KEYWORDS
+LIBS_QTMULTIMEDIAWIDGETS     ?= $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKGCONFIG) Qt5MultimediaWidgets --libs-only-L --libs-only-l $(STDERR_TO_DEVNULL))
+CPPFLAGS_QTMULTIMEDIAWIDGETS := $(CPPFLAGS_QTMULTIMEDIAWIDGETS)
+LIBS_QTMULTIMEDIAWIDGETS     := $(LIBS_QTMULTIMEDIAWIDGETS)
 
 CPPFLAGS          += $(CPPFLAGS_QTCORE) $(CPPFLAGS_QTGUI) $(CPPFLAGS_QTWIDGETS) $(CPPFLAGS_QTSVG) $(CPPFLAGS_XML) $(CPPFLAGS_GLIB) $(CPPFLAGS_PNG) $(CPPFLAGS_JPEG) -Iinclude -Ilibs
 ASSIMP_INTERNAL    ?= no
@@ -405,10 +409,10 @@ dependencies-check:
 	checkheader libxml2-dev libxml/xpath.h xmlXPathInit "$(CPPFLAGS_XML)" "$(LIBS_XML)"; \
 	checkheader libpng12-dev png.h png_create_read_struct "$(CPPFLAGS_PNG)" "$(LIBS_PNG)"; \
 	checkheader "mesa-common-dev (or another OpenGL library)" GL/gl.h glClear "$(CPPFLAGS_GL)" "$(LIBS_GL)"; \
-	checkheader Qt5Core QCoreApplication QCoreApplication::exec "$(CPPFLAGS_QTCORE)" "$(LIBS_QTCORE)"; \
-	checkheader Qt5Gui QGuiApplication QGuiApplication::exec "$(CPPFLAGS_QTGUI)" "$(LIBS_QTGUI)"; \
-	checkheader Qt5Widgets QApplication QApplication::exec "$(CPPFLAGS_QTWIDGETS)" "$(LIBS_QTWIDGETS)"; \
-	checkheader Qt5Svg QSvgWidget QSvgWidget::mouseGrabber "$(CPPFLAGS_QTSVG)" "$(LIBS_QTSVG)"; \
+		checkheader Qt5Core QCoreApplication QCoreApplication::exec "$(CPPFLAGS_QTCORE)" "$(LIBS_QTCORE)"; \
+		checkheader Qt5Gui QGuiApplication QGuiApplication::exec "$(CPPFLAGS_QTGUI)" "$(LIBS_QTGUI)"; \
+		checkheader Qt5Widgets QApplication QApplication::exec "$(CPPFLAGS_QTWIDGETS)" "$(LIBS_QTWIDGETS)"; \
+		checkheader Qt5Svg QSvgWidget QSvgWidget::mouseGrabber "$(CPPFLAGS_QTSVG)" "$(LIBS_QTSVG)"; \
 	[ "$(ASSIMP_INTERNAL)" != "yes" ] && checkheader libassimp-dev assimp/Importer.hpp Assimp::Importer::MaxLenHint "$(CPPFLAGS_ASSIMP)" "$(LIBS_ASSIMP)"; \
 	[ "$(OS)" != "Win32" ] && checkheader libc6-dev dlfcn.h dlopen "$(CPPFLAGS_DL)" "$(LIBS_DL)"; \
 	checkheader zlib1g-dev zlib.h zlibVersion "$(CPPFLAGS_ZLIB)" "$(LIBS_ZLIB)"; \
@@ -876,9 +880,10 @@ libwebplib.$(A): \
 	libs/webplib/webplib.o \
 
 $(INSTALLDIR)/radiant.$(EXE): LDFLAGS_EXTRA := $(MWINDOWS)
-$(INSTALLDIR)/radiant.$(EXE): LIBS_EXTRA := $(LIBS_GL) $(LIBS_DL) $(LIBS_XML) $(LIBS_GLIB) $(LIBS_QTWIDGETS) $(LIBS_QTSVG) $(LIBS_QTMULTIMEDIA) $(LIBS_ZLIB)
-$(INSTALLDIR)/radiant.$(EXE): CPPFLAGS_EXTRA := $(CPPFLAGS_GL) $(CPPFLAGS_DL) $(CPPFLAGS_XML) $(CPPFLAGS_GLIB) $(CPPFLAGS_QTWIDGETS) $(CPPFLAGS_QTSVG) $(CPPFLAGS_QTMULTIMEDIA) -Ilibs -Iinclude
+$(INSTALLDIR)/radiant.$(EXE): LIBS_EXTRA := $(LIBS_GL) $(LIBS_DL) $(LIBS_XML) $(LIBS_GLIB) $(LIBS_QTWIDGETS) $(LIBS_QTSVG) $(LIBS_QTMULTIMEDIA) $(LIBS_QTMULTIMEDIAWIDGETS) $(LIBS_ZLIB)
+$(INSTALLDIR)/radiant.$(EXE): CPPFLAGS_EXTRA := $(CPPFLAGS_GL) $(CPPFLAGS_DL) $(CPPFLAGS_XML) $(CPPFLAGS_GLIB) $(CPPFLAGS_QTWIDGETS) $(CPPFLAGS_QTSVG) $(CPPFLAGS_QTMULTIMEDIA) $(CPPFLAGS_QTMULTIMEDIAWIDGETS) -Ilibs -Iinclude
 $(INSTALLDIR)/radiant.$(EXE): \
+	radiant/audio_workbench.o \
 	radiant/autosave.o \
 	radiant/brushmanip.o \
 	radiant/brushmodule.o \
@@ -942,6 +947,7 @@ $(INSTALLDIR)/radiant.$(EXE): \
 	radiant/referencecache.o \
 	radiant/renderer.o \
 	radiant/renderstate.o \
+	radiant/spreadsheet_workbench.o \
 	radiant/scenegraph.o \
 	radiant/selection.o \
 	radiant/selection_mtor_clip.o \
@@ -964,6 +970,7 @@ $(INSTALLDIR)/radiant.$(EXE): \
 	radiant/treemodel.o \
 	radiant/undo.o \
 	radiant/url.o \
+	radiant/video_workbench.o \
 	radiant/view.o \
 	radiant/watchbsp.o \
 	radiant/winding.o \

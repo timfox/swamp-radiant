@@ -699,6 +699,65 @@ void ToggleShowLightRadii(){
 	UpdateAllWindows();
 }
 
+struct EntityPresetKeyValue
+{
+	const char* key;
+	const char* value;
+};
+
+void Entity_applyPresetToWorldspawn( const char* commandName, const char* statusMessage, const EntityPresetKeyValue* keyValues, std::size_t count ){
+	Entity* worldspawn = Node_getEntity( Map_FindOrInsertWorldspawn( g_map ) );
+	if ( worldspawn == 0 ) {
+		globalErrorStream() << "Failed to find or create worldspawn while applying preset\n";
+		return;
+	}
+
+	UndoableCommand undo( commandName );
+	for ( std::size_t i = 0; i < count; ++i )
+	{
+		worldspawn->setKeyValue( keyValues[i].key, keyValues[i].value );
+	}
+
+	Sys_Status( statusMessage );
+}
+
+void Entity_applyNextGenVolumetricFogPreset(){
+	static const EntityPresetKeyValue volumetricFogPreset[] = {
+		{ "r_volumetricFog", "1" },
+		{ "r_volumetricFogDensity", "0.35" },
+		{ "r_volumetricFogHeightFalloff", "0.4" },
+		{ "r_volumetricFogAniso", "0.6" },
+		{ "r_volumetricFogSteps", "64" },
+		{ "r_volumetricFogMaxDistance", "4096" },
+		{ "r_volumetricFogColorMode", "0" },
+		{ "r_volumetricFogTint", "1 1 1" },
+		{ "r_volumetricFogQuality", "2" },
+		{ "r_volumetricFogResolutionScale", "1.0" },
+		{ "r_fog_shadows", "1" },
+		{ "r_fogFluid", "1" },
+		{ "r_fogFluidQuality", "2" },
+	};
+	Entity_applyPresetToWorldspawn(
+		"entityApplyNextGenVolumetricFogPreset",
+		"Applied Next-Gen volumetric fog preset to worldspawn",
+		volumetricFogPreset,
+		sizeof( volumetricFogPreset ) / sizeof( volumetricFogPreset[0] ) );
+}
+
+void Entity_applyNextGenBulletPreset(){
+	static const EntityPresetKeyValue bulletPreset[] = {
+		{ "sv_bulletEnable", "1" },
+		{ "sv_bulletMaxSubSteps", "4" },
+		{ "sv_bulletFixedTimestep", "0" },
+		{ "sv_bulletDebug", "0" },
+	};
+	Entity_applyPresetToWorldspawn(
+		"entityApplyNextGenBulletPreset",
+		"Applied Next-Gen Bullet physics preset to worldspawn",
+		bulletPreset,
+		sizeof( bulletPreset ) / sizeof( bulletPreset[0] ) );
+}
+
 inline bool game_has_killConnect(){
 	return g_pGameDescription->mGameType == "nexuiz"
 	    || g_pGameDescription->mGameType == "xonotic"
@@ -713,6 +772,9 @@ void Entity_constructMenu( QMenu* menu ){
 	create_menu_item_with_mnemonic( menu, "&Move Primitives to Entity", "EntityMovePrimitivesToLast" );
 	create_menu_item_with_mnemonic( menu, "&Select Color...", "EntityColorSet" );
 	create_menu_item_with_mnemonic( menu, "&Normalize Color", "EntityColorNormalize" );
+	menu->addSeparator();
+	create_menu_item_with_mnemonic( menu, "Apply Next-Gen Volumetric Fog Preset", "EntityApplyNextGenVolumetricFogPreset" );
+	create_menu_item_with_mnemonic( menu, "Apply Next-Gen Bullet Physics Preset", "EntityApplyNextGenBulletPreset" );
 	menu->addSeparator();
 	create_menu_item_with_mnemonic( menu, "Reload Entity Definitions", "EntityReloadDefinitions" );
 }
@@ -742,6 +804,8 @@ void Entity_Construct(){
 	GlobalCommands_insert( "EntityUngroup", makeCallbackF( Entity_ungroup ),
 	                       Layout_expiramentalFeaturesEnabled() ? QKeySequence( "Alt+G" ) : QKeySequence() );
 	GlobalCommands_insert( "EntityUngroupPrimitives", makeCallbackF( Entity_ungroupSelectedPrimitives ) );
+	GlobalCommands_insert( "EntityApplyNextGenVolumetricFogPreset", makeCallbackF( Entity_applyNextGenVolumetricFogPreset ) );
+	GlobalCommands_insert( "EntityApplyNextGenBulletPreset", makeCallbackF( Entity_applyNextGenBulletPreset ) );
 	GlobalCommands_insert( "EntityReloadDefinitions", makeCallbackF( Entity_reloadDefinitions ) );
 
 	GlobalToggles_insert( "ShowLightRadiuses", makeCallbackF( ToggleShowLightRadii ), ToggleItem::AddCallbackCaller( g_show_lightradii_item ) );
