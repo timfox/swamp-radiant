@@ -13,11 +13,15 @@
 #include <QLabel>
 #include <QSlider>
 #include <QCheckBox>
+#include <QListWidget>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QSettings>
 #include <QMenu>
 #include <QMessageBox>
+#include <QDir>
+#include <QDirIterator>
+#include <QProcess>
 
 #include <limits>
 
@@ -49,6 +53,9 @@ QSlider* g_videoVolumeSlider{};
 QLabel* g_videoPathLabel{};
 QLabel* g_videoTimeLabel{};
 QCheckBox* g_videoLoopCheck{};
+QListWidget* g_videoList{};
+QPushButton* g_videoRefreshButton{};
+QLabel* g_videoStatusLabel{};
 
 const char* const c_videoSettingsPrefix = "VideoWorkbench/";
 
@@ -72,6 +79,61 @@ int VideoWorkbench_settingInt( const char* key, int fallback ){
 void VideoWorkbench_setSetting( const char* key, const QVariant& value ){
 	VideoWorkbench_settings().setValue( StringStream( c_videoSettingsPrefix, key ).c_str(), value );
 }
+
+QString VideoWorkbench_videoContentFolder(){
+	const QString override = VideoWorkbench_setting( "VideoFolder" );
+	if ( !override.isEmpty() ) {
+		return override;
+	}
+	return QString::fromLatin1( EnginePath_get() ) + "/content/movies";
+}
+
+QStringList VideoWorkbench_videoExtensions(){
+	return { ".mp4", ".mkv", ".webm", ".avi", ".mov", ".ogv", ".m4v", ".roq" };
+}
+
+bool VideoWorkbench_isRoQ( const QString& path ){
+	return path.toLower().endsWith( ".roq" );
+}
+
+QString VideoWorkbench_roqPlayerPath(){
+	const QString configured = VideoWorkbench_setting( "RoQPlayer" );
+	if ( !configured.isEmpty() && QFile::exists( configured ) ) {
+		return configured;
+	}
+	const QString candidate1 = QString::fromLatin1( StringStream( EnginePath_get(), "../tools/roqplay" ).c_str() );
+	if ( QFile::exists( candidate1 ) ) {
+		return candidate1;
+	}
+	const QString candidate2 = QString::fromLatin1( StringStream( EnginePath_get(), "../tools/roqplayer" ).c_str() );
+	if ( QFile::exists( candidate2 ) ) {
+		return candidate2;
+	}
+	return {};
+}
+
+QStringList VideoWorkbench_collectVideoFiles( const QString& directory, bool recursive ){
+	QStringList files;
+	const QStringList extensions = VideoWorkbench_videoExtensions();
+	if ( recursive ) {
+		QDirIterator it( directory, extensions, QDir::Files, QDirIterator::Subdirectories );
+		while ( it.hasNext() ) {
+			files.push_back( it.next() );
+		}
+	}
+	else{
+		QDir dir( directory );
+		for ( const auto& file : dir.entryList( extensions, QDir::Files, QDir::Name ) ) {
+			files.push_back( dir.absoluteFilePath( file ) );
+		}
+	}
+	return files;
+}
+
+void VideoWorkbench_refreshVideoList( bool recursive );
+void VideoWorkbench_addVideoItem( const QString& path );
+void VideoWorkbench_playRoQ( const QString& path );
+void VideoWorkbench_openVideoFile( const QString& path );
 
 QString VideoWorkbench_formatDuration( qint64 milliseconds ){
 	if ( milliseconds < 0 ) {
@@ -154,11 +216,11 @@ void VideoWorkbench_showContextMenu( const QPoint& pos ){
 		if ( chosen == openAction ) {
 			const auto path = QFileDialog::getOpenFileName(
 			    MainFrame_getWindow(),
-			    "Open Cinematic Video",
+			    "Open Video",
 			    VideoWorkbench_defaultDirectory(),
-			    "Video Files (*.mp4 *.mkv *.webm *.avi *.mov *.ogv *.m4v);;All Files (*)"
+			    "Video Files (*.mp4 *.mkv *.webm *.avi *.mov *.ogv *.m4v *.roq);;All Files (*)"
 			);
-			VideoWorkbench_openFile( path );
+			VideoWorkbench_openVideoFile( path );
 		}
 		else if ( chosen == playAction && g_videoPlayer != nullptr ) {
 			g_videoPlayer->play();
@@ -173,6 +235,66 @@ void VideoWorkbench_showContextMenu( const QPoint& pos ){
 			g_videoLoopCheck->setChecked( !g_videoLoopCheck->isChecked() );
 		}
 	}
+}
+
+void VideoWorkbench_addVideoItem( const QString& path ){
+	if ( g_videoList == nullptr ) {
+		return;
+	}
+	const QString absolute = QFileInfo( path ).absoluteFilePath();
+	auto* item = new QListWidgetItem( QFileInfo( absolute ).fileName(), g_videoList );
+	item->setToolTip( absolute );
+	item->setData( Qt::UserRole, absolute );
+}
+
+void VideoWorkbench_refreshVideoList( bool recursive ){
+	if ( g_videoList == nullptr ) {
+		return;
+	}
+	const QString folder = VideoWorkbench_videoContentFolder();
+	if ( folder.isEmpty() ) {
+		if ( g_videoStatusLabel != nullptr ) {
+			g_videoStatusLabel->setText( "Movies: (no folder configured)" );
+		}
+		return;
+	}
+	QDir dir( folder );
+	if ( !dir.exists() ) {
+		if ( g_videoStatusLabel != nullptr ) {
+			g_videoStatusLabel->setText( QString( "Movies: folder missing (%1)" ).arg( folder ) );
+		}
+		return;
+	}
+	const QStringList files = VideoWorkbench_collectVideoFiles( folder, recursive );
+	g_videoList->clear();
+	for ( const auto& file : files )
+	{
+		VideoWorkbench_addVideoItem( file );
+	}
+	if ( g_videoStatusLabel != nullptr ) {
+		g_videoStatusLabel->setText( StringStream( "Movies: ", files.size() ).c_str() );
+	}
+}
+
+void VideoWorkbench_playRoQ( const QString& path ){
+	const QString player = VideoWorkbench_roqPlayerPath();
+	if ( player.isEmpty() ) {
+		QMessageBox::warning( MainFrame_getWindow(), "Play RoQ", "RoQ player not found in the tools directory." );
+		return;
+	}
+	QProcess::startDetached( player, { path } );
+}
+
+void VideoWorkbench_openVideoFile( const QString& path ){
+	const QString absolute = QFileInfo( path ).absoluteFilePath();
+	if ( absolute.isEmpty() ) {
+		return;
+	}
+	if ( VideoWorkbench_isRoQ( absolute ) ) {
+		VideoWorkbench_playRoQ( absolute );
+		return;
+	}
+	VideoWorkbench_openFile( absolute );
 }
 
 #endif
@@ -193,22 +315,30 @@ void VideoWorkbench_createDock( QMainWindow* window ){
 		return;
 	}
 
-	g_videoDock = new QDockWidget( "Cinematic Player", window );
-	g_videoDock->setObjectName( "dock_cinematic_player" );
+	g_videoDock = new QDockWidget( "Video Player", window );
+	g_videoDock->setObjectName( "dock_video_player" );
 
 	auto* root = new QWidget( g_videoDock );
 	auto* layout = new QVBoxLayout( root );
 
 	auto* topButtons = new QHBoxLayout();
 	auto* openButton = new QPushButton( "Open Video...", root );
+	auto* refreshButton = new QPushButton( "Refresh Movies", root );
 	auto* playButton = new QPushButton( "Play", root );
 	auto* pauseButton = new QPushButton( "Pause", root );
 	auto* stopButton = new QPushButton( "Stop", root );
 	topButtons->addWidget( openButton );
+	topButtons->addWidget( refreshButton );
 	topButtons->addWidget( playButton );
 	topButtons->addWidget( pauseButton );
 	topButtons->addWidget( stopButton );
 	layout->addLayout( topButtons );
+
+	g_videoList = new QListWidget( root );
+	g_videoList->setSelectionMode( QAbstractItemView::SingleSelection );
+	g_videoList->setMinimumHeight( 120 );
+	layout->addWidget( g_videoList );
+	g_videoRefreshButton = refreshButton;
 
 	g_videoWidget = new QVideoWidget( root );
 	g_videoWidget->setMinimumHeight( 220 );
@@ -226,6 +356,8 @@ void VideoWorkbench_createDock( QMainWindow* window ){
 	statusRow->addWidget( g_videoPathLabel, 1 );
 	statusRow->addWidget( g_videoTimeLabel );
 	layout->addLayout( statusRow );
+	g_videoStatusLabel = new QLabel( "Movies: 0", root );
+	layout->addWidget( g_videoStatusLabel );
 
 	auto* controlsRow = new QHBoxLayout();
 	controlsRow->addWidget( new QLabel( "Volume", root ) );
@@ -249,12 +381,17 @@ void VideoWorkbench_createDock( QMainWindow* window ){
 	QObject::connect( openButton, &QPushButton::clicked, [](){
 		const auto path = QFileDialog::getOpenFileName(
 		    MainFrame_getWindow(),
-		    "Open Cinematic Video",
+		    "Open Video",
 		    VideoWorkbench_defaultDirectory(),
-		    "Video Files (*.mp4 *.mkv *.webm *.avi *.mov *.ogv *.m4v);;All Files (*)"
+		    "Video Files (*.mp4 *.mkv *.webm *.avi *.mov *.ogv *.m4v *.roq);;All Files (*)"
 		);
-		VideoWorkbench_openFile( path );
+		VideoWorkbench_openVideoFile( path );
 	} );
+	if ( refreshButton != nullptr ) {
+		QObject::connect( refreshButton, &QPushButton::clicked, [](){
+			VideoWorkbench_refreshVideoList( true );
+		} );
+	}
 	QObject::connect( playButton, &QPushButton::clicked, [](){
 		if ( g_videoPlayer != nullptr ) {
 			g_videoPlayer->play();
@@ -292,6 +429,13 @@ void VideoWorkbench_createDock( QMainWindow* window ){
 	QObject::connect( g_videoWidget, &QWidget::customContextMenuRequested, []( const QPoint& pos ){
 		VideoWorkbench_showContextMenu( pos );
 	} );
+	if ( g_videoList != nullptr ) {
+		QObject::connect( g_videoList, &QListWidget::itemDoubleClicked, []( QListWidgetItem* item ){
+			if ( item != nullptr ) {
+				VideoWorkbench_openVideoFile( item->data( Qt::UserRole ).toString() );
+			}
+		} );
+	}
 	QObject::connect( g_videoPlayer, &QMediaPlayer::positionChanged, []( qint64 position ){
 		if ( g_videoSeekSlider != nullptr && !g_videoSeekSlider->isSliderDown() ) {
 			g_videoSeekSlider->setValue( int( position ) );
@@ -324,6 +468,7 @@ void VideoWorkbench_createDock( QMainWindow* window ){
 	if ( !lastFile.isEmpty() && QFileInfo::exists( lastFile ) ) {
 		VideoWorkbench_openFile( lastFile, false );
 	}
+	VideoWorkbench_refreshVideoList( true );
 	VideoWorkbench_updateTimeLabel();
 }
 
@@ -339,6 +484,9 @@ void VideoWorkbench_stopAndRelease(){
 	g_videoPathLabel = nullptr;
 	g_videoTimeLabel = nullptr;
 	g_videoLoopCheck = nullptr;
+	g_videoList = nullptr;
+	g_videoRefreshButton = nullptr;
+	g_videoStatusLabel = nullptr;
 }
 #else
 void VideoWorkbench_createDock( QMainWindow* ){
