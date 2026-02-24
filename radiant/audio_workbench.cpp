@@ -15,6 +15,8 @@
 #include <QListWidget>
 #include <QSlider>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QVariant>
 #include <QFileDialog>
 #include <QFile>
 #include <QFileInfo>
@@ -29,6 +31,7 @@
 #include <algorithm>
 #include <limits>
 #include <set>
+#include <QHash>
 
 #if __has_include( <QMediaContent> ) && __has_include( <QMediaPlayer> ) && __has_include( <QMediaPlaylist> )
 	#include <QMediaContent>
@@ -53,8 +56,10 @@ QLabel* g_audioNowPlayingLabel{};
 QLabel* g_audioTimeLabel{};
 QLineEdit* g_audioSearchEdit{};
 QLabel* g_audioPlaylistStatsLabel{};
-QCheckBox* g_audioShuffleCheck{};
-QCheckBox* g_audioLoopCheck{};
+	QCheckBox* g_audioShuffleCheck{};
+	QCheckBox* g_audioLoopCheck{};
+	QComboBox* g_audioCategoryFilter{};
+	QPushButton* g_audioScanContentButton{};
 
 const char* const c_audioSettingsPrefix = "AudioWorkbench/";
 
@@ -111,6 +116,160 @@ void AudioWorkbench_setLastDirectory( const QString& path ){
 		AudioWorkbench_setSetting( "LastDirectory", directory );
 	}
 }
+
+enum class AudioCategory
+{
+	Unknown = 0,
+	SoundEffect,
+	Music,
+	Playlist
+};
+
+QHash<QString, AudioCategory> g_audioCategories;
+
+AudioCategory AudioWorkbench_detectCategory( const QString& path ){
+	const QString normalized = QFileInfo( path ).fileName().toLower();
+	const QString lowerPath = path.toLower();
+	static const QStringList playlistExtensions = { ".m3u", ".m3u8", ".pls" };
+	for ( const auto& ext : playlistExtensions )
+	{
+		if ( lowerPath.endsWith( ext ) ) {
+			return AudioCategory::Playlist;
+		}
+	}
+
+	if ( lowerPath.contains( "/music/" ) || lowerPath.contains( "\\music\\" ) || normalized.startsWith( "music_" ) ) {
+		return AudioCategory::Music;
+	}
+	if ( lowerPath.contains( "/sfx/" ) || lowerPath.contains( "\\sfx\\" ) || normalized.startsWith( "sfx_" ) ) {
+		return AudioCategory::SoundEffect;
+	}
+
+	return AudioCategory::SoundEffect;
+}
+
+QString AudioWorkbench_categoryLabel( AudioCategory category ){
+	switch ( category )
+	{
+	case AudioCategory::Music:
+		return "Music";
+	case AudioCategory::Playlist:
+		return "Playlist";
+	case AudioCategory::SoundEffect:
+		return "SFX";
+	default:
+		return "Unknown";
+	}
+}
+
+QString AudioWorkbench_contentFolder(){
+	const QString override = AudioWorkbench_setting( "ContentFolder" );
+	if ( !override.isEmpty() ) {
+		return override;
+	}
+	return QString::fromLatin1( EnginePath_get() ) + "/content";
+}
+
+void AudioWorkbench_setContentFolder( const QString& path ){
+	if ( path.isEmpty() ) {
+		return;
+	}
+	AudioWorkbench_setSetting( "ContentFolder", path );
+}
+
+QString AudioWorkbench_categoryFilterLabel( AudioCategory category ){
+	if ( category == AudioCategory::Unknown ) {
+		return "All";
+	}
+	return AudioWorkbench_categoryLabel( category );
+}
+
+AudioCategory AudioWorkbench_filterCategorySetting(){
+	return static_cast<AudioCategory>( AudioWorkbench_settingInt( "CategoryFilter", static_cast<int>( AudioCategory::Unknown ) ) );
+}
+
+void AudioWorkbench_setMediaCategory( const QString& path, AudioCategory category ){
+	const QString absolute = QFileInfo( path ).absoluteFilePath();
+	g_audioCategories.insert( absolute, category );
+}
+
+AudioCategory AudioWorkbench_categoryForPath( const QString& path ){
+	const QString absolute = QFileInfo( path ).absoluteFilePath();
+	if ( const auto it = g_audioCategories.find( absolute ); it != g_audioCategories.end() ) {
+		return it.value();
+	}
+	const AudioCategory detected = AudioWorkbench_detectCategory( absolute );
+	g_audioCategories.insert( absolute, detected );
+	return detected;
+}
+
+QStringList AudioWorkbench_collectAudioFiles( const QString& directory, bool recursive ){
+	static const QStringList filters = { "*.mp3", "*.ogg", "*.wav", "*.flac", "*.opus", "*.aac", "*.m4a", "*.m3u", "*.m3u8", "*.pls" };
+	QStringList files;
+	if ( recursive ) {
+		QDirIterator iterator( directory, filters, QDir::Files, QDirIterator::Subdirectories );
+		while ( iterator.hasNext() ) {
+			files.push_back( iterator.next() );
+		}
+	}
+	else{
+		QDir dir( directory );
+		for ( const auto& file : dir.entryList( filters, QDir::Files, QDir::Name ) ) {
+			files.push_back( dir.absoluteFilePath( file ) );
+		}
+	}
+	return files;
+}
+
+void AudioWorkbench_addFiles( const QStringList& files );
+void AudioWorkbench_dedupe();
+void AudioWorkbench_updateStatsLabel();
+
+void AudioWorkbench_applyCategoryFilter();
+
+void AudioWorkbench_scanContentFolder( bool recursive, bool showWarnings = true ){
+	const QString folder = AudioWorkbench_contentFolder();
+	if ( folder.isEmpty() ) {
+		return;
+	}
+	QDir dir( folder );
+	if ( !dir.exists() ) {
+		if ( showWarnings ) {
+			QMessageBox::warning( MainFrame_getWindow(), "Audio Scan", QString( "Content folder not found: %1" ).arg( folder ) );
+		}
+		return;
+	}
+	AudioWorkbench_setContentFolder( folder );
+	const QStringList files = AudioWorkbench_collectAudioFiles( folder, recursive );
+	if ( files.isEmpty() ) {
+		if ( showWarnings ) {
+			QMessageBox::information( MainFrame_getWindow(), "Audio Scan", "No audio files detected in the content folder." );
+		}
+		return;
+	}
+	AudioWorkbench_addFiles( files );
+	AudioWorkbench_dedupe();
+	AudioWorkbench_applyCategoryFilter();
+}
+
+void AudioWorkbench_applyCategoryFilter(){
+	if ( g_audioCategoryFilter == nullptr || g_audioPlaylistView == nullptr ) {
+		return;
+	}
+	const AudioCategory filterCategory = static_cast<AudioCategory>( g_audioCategoryFilter->currentData().toInt() );
+	for ( int i = 0; i < g_audioPlaylistView->count(); ++i )
+	{
+		auto* item = g_audioPlaylistView->item( i );
+		if ( item == nullptr ) {
+			continue;
+		}
+		const AudioCategory category = static_cast<AudioCategory>( item->data( Qt::UserRole + 2 ).toInt() );
+		const bool visible = filterCategory == AudioCategory::Unknown || category == filterCategory;
+		item->setHidden( !visible );
+	}
+	AudioWorkbench_updateStatsLabel();
+}
+
 
 QString AudioWorkbench_defaultDirectory(){
 	const QString last = AudioWorkbench_setting( "LastDirectory" );
@@ -210,10 +369,16 @@ void AudioWorkbench_syncPlaylistView(){
 		const auto media = g_audioPlaylist->media( i );
 		const auto url = media.canonicalUrl();
 		const auto path = url.isLocalFile() ? url.toLocalFile() : url.toString();
-		auto* item = new QListWidgetItem( QFileInfo( path ).fileName(), g_audioPlaylistView );
-		item->setToolTip( path );
-		item->setData( Qt::UserRole, path );
+		const QString absolute = QFileInfo( path ).absoluteFilePath();
+		const AudioCategory category = AudioWorkbench_categoryForPath( absolute );
+		const QString title = QFileInfo( path ).fileName();
+		const QString displayText = QString( "%1 [%2]" ).arg( title, AudioWorkbench_categoryLabel( category ) );
+		auto* item = new QListWidgetItem( displayText, g_audioPlaylistView );
+		const QString tooltip = QString( "%1 (%2)" ).arg( path, AudioWorkbench_categoryLabel( category ) );
+		item->setToolTip( tooltip );
+		item->setData( Qt::UserRole, absolute );
 		item->setData( Qt::UserRole + 1, i );
+		item->setData( Qt::UserRole + 2, static_cast<int>( category ) );
 	}
 
 	const int currentPlaylistIndex = g_audioPlaylist->currentIndex();
@@ -228,6 +393,7 @@ void AudioWorkbench_syncPlaylistView(){
 
 	AudioWorkbench_updateNowPlayingLabel();
 	AudioWorkbench_applyFilter();
+	AudioWorkbench_applyCategoryFilter();
 	AudioWorkbench_saveAutosavePlaylist();
 }
 
@@ -254,8 +420,11 @@ void AudioWorkbench_addFiles( const QStringList& files ){
 		if ( file.isEmpty() ) {
 			continue;
 		}
-		g_audioPlaylist->addMedia( QUrl::fromLocalFile( QFileInfo( file ).absoluteFilePath() ) );
-		AudioWorkbench_setLastDirectory( file );
+		const QString absolute = QFileInfo( file ).absoluteFilePath();
+		const AudioCategory category = AudioWorkbench_detectCategory( absolute );
+		AudioWorkbench_setMediaCategory( absolute, category );
+		g_audioPlaylist->addMedia( QUrl::fromLocalFile( absolute ) );
+		AudioWorkbench_setLastDirectory( absolute );
 	}
 
 	if ( g_audioPlaylist->currentIndex() < 0 && g_audioPlaylist->mediaCount() > 0 ) {
@@ -289,6 +458,8 @@ void AudioWorkbench_rebuildPlaylist( const QStringList& paths, const QString& se
 	for ( int i = 0; i < paths.size(); ++i )
 	{
 		const auto absolute = QFileInfo( paths[i] ).absoluteFilePath();
+		const AudioCategory category = AudioWorkbench_detectCategory( absolute );
+		AudioWorkbench_setMediaCategory( absolute, category );
 		g_audioPlaylist->addMedia( QUrl::fromLocalFile( absolute ) );
 		if ( !selectedPath.isEmpty() && absolute == selectedPath ) {
 			selectedIndex = i;
@@ -348,7 +519,10 @@ bool AudioWorkbench_loadPlaylistFromFile( const QString& path, bool showErrors )
 			continue;
 		}
 		const auto resolved = QFileInfo( raw ).isAbsolute() ? raw : baseDir.absoluteFilePath( raw );
-		g_audioPlaylist->addMedia( QUrl::fromLocalFile( QFileInfo( resolved ).absoluteFilePath() ) );
+		const QString absolute = QFileInfo( resolved ).absoluteFilePath();
+		const AudioCategory category = AudioWorkbench_detectCategory( absolute );
+		AudioWorkbench_setMediaCategory( absolute, category );
+		g_audioPlaylist->addMedia( QUrl::fromLocalFile( absolute ) );
 	}
 	if ( g_audioPlaylist->mediaCount() > 0 ) {
 		const int requestedIndex = AudioWorkbench_settingInt( "CurrentIndex", 0 );
@@ -557,6 +731,9 @@ void AudioWorkbench_createDock( QMainWindow* window ){
 	topButtons->addWidget( savePlaylistButton );
 	topButtons->addWidget( saveRelativeButton );
 	topButtons->addWidget( clearPlaylistButton );
+	auto* scanContentButton = new QPushButton( "Scan Content", root );
+	topButtons->addWidget( scanContentButton );
+	g_audioScanContentButton = scanContentButton;
 	layout->addLayout( topButtons );
 
 	auto* filterRow = new QHBoxLayout();
@@ -564,6 +741,18 @@ void AudioWorkbench_createDock( QMainWindow* window ){
 	g_audioSearchEdit = new QLineEdit( root );
 	g_audioSearchEdit->setPlaceholderText( "Type to filter playlist..." );
 	filterRow->addWidget( g_audioSearchEdit, 1 );
+	filterRow->addWidget( new QLabel( "Category", root ) );
+	g_audioCategoryFilter = new QComboBox( root );
+	g_audioCategoryFilter->addItem( AudioWorkbench_categoryFilterLabel( AudioCategory::Unknown ), static_cast<int>( AudioCategory::Unknown ) );
+	g_audioCategoryFilter->addItem( AudioWorkbench_categoryFilterLabel( AudioCategory::Music ), static_cast<int>( AudioCategory::Music ) );
+	g_audioCategoryFilter->addItem( AudioWorkbench_categoryFilterLabel( AudioCategory::SoundEffect ), static_cast<int>( AudioCategory::SoundEffect ) );
+	g_audioCategoryFilter->addItem( AudioWorkbench_categoryFilterLabel( AudioCategory::Playlist ), static_cast<int>( AudioCategory::Playlist ) );
+	const AudioCategory savedFilter = AudioWorkbench_filterCategorySetting();
+	const int savedIndex = g_audioCategoryFilter->findData( static_cast<int>( savedFilter ) );
+	if ( savedIndex >= 0 ) {
+		g_audioCategoryFilter->setCurrentIndex( savedIndex );
+	}
+	filterRow->addWidget( g_audioCategoryFilter );
 	layout->addLayout( filterRow );
 
 	g_audioPlaylistView = new QListWidget( root );
@@ -822,6 +1011,21 @@ void AudioWorkbench_createDock( QMainWindow* window ){
 		AudioWorkbench_setSetting( "CurrentIndex", currentIndex );
 	} );
 	QObject::connect( g_audioSearchEdit, &QLineEdit::textChanged, []( const QString& ){ AudioWorkbench_applyFilter(); } );
+	if ( g_audioCategoryFilter != nullptr ) {
+		QObject::connect( g_audioCategoryFilter, QOverload<int>::of( &QComboBox::currentIndexChanged ), []( int index ){
+			if ( g_audioCategoryFilter == nullptr ) {
+				return;
+			}
+			const AudioCategory category = static_cast<AudioCategory>( g_audioCategoryFilter->itemData( index ).toInt() );
+			AudioWorkbench_setSetting( "CategoryFilter", static_cast<int>( category ) );
+			AudioWorkbench_applyCategoryFilter();
+		} );
+	}
+	if ( g_audioScanContentButton != nullptr ) {
+		QObject::connect( g_audioScanContentButton, &QPushButton::clicked, [](){
+			AudioWorkbench_scanContentFolder( true );
+		} );
+	}
 	QObject::connect( g_audioPlayer, QOverload<QMediaPlayer::Error>::of( &QMediaPlayer::error ), []( QMediaPlayer::Error error ){
 		if ( error == QMediaPlayer::NoError || g_audioPlayer == nullptr ) {
 			return;
@@ -832,6 +1036,9 @@ void AudioWorkbench_createDock( QMainWindow* window ){
 	AudioWorkbench_restoreAutosavedPlaylist();
 	AudioWorkbench_syncPlaylistView();
 	AudioWorkbench_updateTimeLabel();
+	if ( g_audioPlaylist != nullptr && g_audioPlaylist->mediaCount() == 0 ) {
+		AudioWorkbench_scanContentFolder( true, false );
+	}
 }
 
 void AudioWorkbench_open(){
@@ -859,6 +1066,8 @@ void AudioWorkbench_stopAndRelease(){
 	g_audioPlaylistStatsLabel = nullptr;
 	g_audioShuffleCheck = nullptr;
 	g_audioLoopCheck = nullptr;
+	g_audioCategoryFilter = nullptr;
+	g_audioScanContentButton = nullptr;
 }
 #else
 void AudioWorkbench_createDock( QMainWindow* ){
