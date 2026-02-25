@@ -3,19 +3,7 @@ id Tech 3 Radiant
 
 The open-source, cross-platform level editor for id Tech based games.
 
----
-![screenshot](/../readme_files/radDarkShot.png?raw=true)
----
-
-## Downloads
-
-Ready-to-use packages are available in the [Releases section](/../../releases).
-
 ## Features
-
-Development is focused on smoothing and tweaking editing process.
-
-#### Random feature highlights
 
 * WASD camera binds
 * Fully supported editing in 3D view (brush and entity creation, all manipulating tools)
