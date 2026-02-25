@@ -1,9 +1,7 @@
-NetRadiant-custom
+id Tech 3 Radiant
 =================
 
 The open-source, cross-platform level editor for id Tech based games.
-
-NetRadiant-custom is a fork of NetRadiant (GtkRadiant 1.4&rarr;massive rewrite&rarr;1.5&rarr;NetRadiant&rarr;this)
 
 ---
 ![screenshot](/../readme_files/radDarkShot.png?raw=true)
@@ -12,12 +10,6 @@ NetRadiant-custom is a fork of NetRadiant (GtkRadiant 1.4&rarr;massive rewrite&r
 ## Downloads
 
 Ready-to-use packages are available in the [Releases section](/../../releases).
-
-## Supported games
-
-Main focus is on Quake, Quake3 and Quake Live.
-
-Though other normally supported games should work too. Releases include configs for the following games: Alien Arena, Darkplaces, Doom 3, Doombringer, Wolfenstein: Enemy Territory, Heretic II, Half-Life, Jedi Knight Jedi Academy, Jedi Knight II: Jedi Outcast, Kingpin, Neverball, Nexuiz, Open Arena, Project::OSiRiON, Prey, Quake II, Q3Rally, Quake 4, Quetoo, Smokin' Guns, Soldier of Fortune II - Double Helix, Star Trek Voyager : Elite Force, Tremulous, Turtle Arena, UFO:Alien Invasion, Unreal Arena, Unvanquished, Urban Terror, Warfork, Warsow, Return To Castle Wolfenstein, World of Padman, Xonotic, ZEQ2 Lite.
 
 ## Features
 
