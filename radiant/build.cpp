@@ -25,8 +25,15 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
-#include <map>
+#include <array>
+#include <cstdio>
 #include <list>
+#include <map>
+#include <string>
+#include "os/path.h"
+#include "string/string.h"
+#include "stream/textfilestream.h"
+#include "stream/textstream.h"
 #include "stream/stringstream.h"
 #include "versionlib.h"
 
@@ -35,6 +42,171 @@
 
 typedef std::map<CopiedString, CopiedString> Variables;
 Variables g_build_variables;
+CopiedString g_volumetricFogConfigPath;
+
+namespace
+{
+constexpr char VOLUMETRIC_FOG_CONFIG_FILENAME[] = "volumetric_fog.cfg";
+
+bool parseVolumetricFogEntityKeyValues( const char* mapFile, std::map<std::string, std::string>& keyValues ){
+	if ( string_empty( mapFile ) ) {
+		return false;
+	}
+	// Crab : not using TextFileInputStream here to keep parsing simple
+	FILE* file = fopen( mapFile, "rt" );
+	if ( file == nullptr ) {
+		return false;
+	}
+
+	int depth = 0;
+	bool insideEntity = false;
+	bool inString = false;
+	bool expectingKey = true;
+	std::string token;
+	std::string key;
+	std::map<std::string, std::string> current;
+
+	while ( true )
+	{
+		const int raw = std::fgetc( file );
+		if ( raw == EOF ) {
+			break;
+		}
+		const char c = static_cast<char>( raw );
+
+		if ( c == '"' ) {
+			if ( !inString ) {
+				inString = true;
+				token.clear();
+			}
+			else
+			{
+				inString = false;
+				if ( insideEntity && depth == 1 ) {
+					if ( expectingKey ) {
+						key = token;
+						expectingKey = false;
+					}
+					else
+					{
+						current[key] = token;
+						expectingKey = true;
+					}
+				}
+			}
+			continue;
+		}
+		if ( inString ) {
+			token.push_back( c );
+			continue;
+		}
+		switch ( c )
+		{
+		case '{':
+			++depth;
+			if ( depth == 1 ) {
+				insideEntity = true;
+				current.clear();
+				expectingKey = true;
+			}
+			break;
+		case '}':
+			if ( insideEntity && depth == 1 ) {
+				const auto it = current.find( "classname" );
+				if ( it != current.end() && string_equal( it->second.c_str(), "func_volumetricfog" ) ) {
+					keyValues = current;
+					fclose( file );
+					return true;
+				}
+				insideEntity = false;
+			}
+			if ( depth > 0 ) {
+				--depth;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	fclose( file );
+	return false;
+}
+
+bool parseVector3( const std::string& value, std::array<float, 3>& result ){
+	return std::sscanf( value.c_str(), "%f %f %f", &result[0], &result[1], &result[2] ) == 3;
+}
+
+void appendFogConsoleVar( TextFileOutputStream& output, const std::map<std::string, std::string>& keyValues, const char* key, const char* variable ){
+	if ( const auto it = keyValues.find( key ); it != keyValues.end() && !string_empty( it->second.c_str() ) ) {
+		output << "set " << variable << " " << it->second.c_str() << '\n';
+	}
+}
+
+bool writeVolumetricFogConfig( const char* mapFile, const char* configPath ){
+	TextFileOutputStream output( configPath );
+	if ( output.failed() ) {
+		return false;
+	}
+
+	std::map<std::string, std::string> keyValues;
+	if ( parseVolumetricFogEntityKeyValues( mapFile, keyValues ) ) {
+		output << "set r_volumetricFog 1\n";
+		appendFogConsoleVar( output, keyValues, "fog_density", "r_volumetricFogDensity" );
+		appendFogConsoleVar( output, keyValues, "fog_maxdistance", "r_volumetricFogMaxDistance" );
+		appendFogConsoleVar( output, keyValues, "fog_localheight", "r_volumetricFogHeightFalloff" );
+		appendFogConsoleVar( output, keyValues, "fog_contrast", "r_volumetricFogAniso" );
+		appendFogConsoleVar( output, keyValues, "fog_wind_speed", "r_volumetricFogWindSpeed" );
+		appendFogConsoleVar( output, keyValues, "fog_wind_direction", "r_volumetricFogWindDirection" );
+		appendFogConsoleVar( output, keyValues, "fog_distortion_amount", "r_volumetricFogDistortion" );
+		appendFogConsoleVar( output, keyValues, "fog_distortion_size", "r_volumetricFogDistortionSize" );
+		appendFogConsoleVar( output, keyValues, "fog_texture", "r_volumetricFogNoiseTexture" );
+		appendFogConsoleVar( output, keyValues, "fog_distorttexture", "r_volumetricFogDistortionTexture" );
+
+		if ( const auto it = keyValues.find( "fog_color" ); it != keyValues.end() ) {
+			std::array<float, 3> color{};
+			if ( parseVector3( it->second, color ) ) {
+				output << "set r_volumetricFogTint " << color[0] << ' ' << color[1] << ' ' << color[2] << '\n';
+			}
+		}
+
+		return true;
+	}
+
+	output << "set r_volumetricFog 0\n";
+	return true;
+}
+
+void updateVolumetricFogConfig( const char* mapFile ){
+	StringOutputStream pathStream( 256 );
+	const char* mapDir = build_get_variable( "MapDir" );
+	if ( !string_empty( mapDir ) ) {
+		pathStream << PathCleaned( mapDir );
+	}
+	else if ( !string_empty( mapFile ) ) {
+		pathStream << PathCleaned( PathFilenameless( mapFile ) );
+	}
+
+	const char* candidate = pathStream.c_str();
+	if ( string_empty( candidate ) ) {
+		g_volumetricFogConfigPath.clear();
+		build_set_variable( "VolumetricFogConfig", "" );
+		return;
+	}
+
+	if ( candidate[ string_length( candidate ) - 1 ] != '/' ) {
+		pathStream << '/';
+	}
+
+	pathStream << VOLUMETRIC_FOG_CONFIG_FILENAME;
+	g_volumetricFogConfigPath = pathStream.c_str();
+	build_set_variable( "VolumetricFogConfig", g_volumetricFogConfigPath.c_str() );
+
+	if ( !writeVolumetricFogConfig( mapFile, g_volumetricFogConfigPath.c_str() ) ) {
+		globalErrorStream() << "failed to write volumetric fog config: " << Quoted( g_volumetricFogConfigPath.c_str() ) << '\n';
+	}
+}
+}
 
 void build_clear_variables(){
 	g_build_variables.clear();
@@ -475,6 +647,7 @@ void build_init_tools(){
 std::vector<CopiedString> build_construct_commands( size_t buildIdx ){
 	build_init_variables();
 	build_init_tools();
+	updateVolumetricFogConfig( build_get_variable( "MapFile" ) );
 
 	std::vector<CopiedString> commands;
 
