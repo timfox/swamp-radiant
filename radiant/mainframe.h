@@ -24,7 +24,20 @@
 #include "gtkutil/idledraw.h"
 #include "string/string.h"
 
+#include <array>
+#include <cstddef>
+
 #include "qerplugin.h"
+
+struct IdTech3ToolDef
+{
+	const char* name;
+	const char* baseExecutable;
+	const char* legacyExecutable;
+	const char* description;
+};
+
+extern IdTech3ToolDef g_idTech3Tools[];
 
 class XYWnd;
 class CamWnd;
@@ -206,6 +219,7 @@ void Radiant_Initialise();
 void Radiant_Shutdown();
 
 void Radiant_Restart();
+void Exit();
 
 
 void XY_UpdateAllWindows();
@@ -255,3 +269,36 @@ void XYWindowMouseDown_disconnect( MouseEventHandlerId id );
 extern QWidget* g_page_entity;
 
 void FocusAllViews();
+
+void Console_ToggleShow();
+void EntityInspector_ToggleShow();
+void ModelBrowser_ToggleShow();
+void LayersBrowser_ToggleShow();
+void IdTech3Tool_runHelp( const IdTech3ToolDef& tool );
+
+void OpenHelpURL();
+void CheckForUpdate();
+void Add_openEntityDialog();
+void Add_createLight();
+void Add_createInfoPlayerStart();
+void Add_createInfoPlayerDeathmatch();
+void Add_createMiscModel();
+void Layout_setHammerFourPane();
+void IdTech3Tool_openHubDialog();
+void Lua_editProps();
+void Lua_editEntities();
+void Lua_editItems();
+void Lua_editMain();
+void Lua_editObjectives();
+void Lua_editPropsExternal();
+void CameraBookmark_store( std::size_t index );
+void CameraBookmark_recall( std::size_t index );
+void Experimental_togglePropertiesDock();
+void Experimental_togglePreviewDock();
+void Experimental_toggleAssetsDock();
+void Experimental_toggleHistoryDock();
+void Experimental_toggleUSDDock();
+void Experimental_importUSDStructure();
+void OpenGLFont_select();
+void MainFrame_toggleFullscreen();
+void Maximize_View();

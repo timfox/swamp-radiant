@@ -26,6 +26,7 @@
 //
 
 #include "mainframe.h"
+#include "mainframe_commands.h"
 #include "generic/callback.h"
 
 #include "debugging/debugging.h"
@@ -1183,23 +1184,23 @@ void Experimental_toggleDock( QDockWidget* dock ){
 	}
 }
 
-void Experimental_togglePropertiesDock(){
+void Experimental_togglePropertiesDock_impl(){
 	Experimental_toggleDock( g_exp_propertiesDock );
 }
-void Experimental_togglePreviewDock(){
+void Experimental_togglePreviewDock_impl(){
 	Experimental_toggleDock( g_exp_previewDock );
 }
-void Experimental_toggleAssetsDock(){
+void Experimental_toggleAssetsDock_impl(){
 	Experimental_toggleDock( g_exp_assetsDock );
 }
-void Experimental_toggleHistoryDock(){
+void Experimental_toggleHistoryDock_impl(){
 	Experimental_toggleDock( g_exp_historyDock );
 }
-void Experimental_toggleUSDDock(){
+void Experimental_toggleUSDDock_impl(){
 	Experimental_toggleDock( g_exp_usdDock );
 }
 
-void Experimental_importUSDStructure(){
+void Experimental_importUSDStructure_impl(){
 	if ( !g_Layout_expiramentalFeatures.m_value || g_exp_usdTree == nullptr ) {
 		return;
 	}
@@ -1422,8 +1423,6 @@ void create_edit_menu( QMenuBar *menubar ){
 	create_menu_item_with_mnemonic( menu, "Pre&ferences...", "Preferences" );
 }
 
-namespace
-{
 Vector3 Add_entitySpawnOrigin(){
 	if ( g_pParentWnd != nullptr && g_pParentWnd->GetCamWnd() != nullptr ) {
 		return Camera_getOrigin( *g_pParentWnd->GetCamWnd() );
@@ -1582,20 +1581,6 @@ void CameraBookmark_recall( std::size_t index ){
 	Sys_Status( StringStream( "Recalled camera bookmark ", index + 1 ).c_str() );
 }
 
-struct IdTech3ToolDef
-{
-	const char* name;
-	const char* baseExecutable;
-	const char* legacyExecutable;
-	const char* description;
-};
-
-IdTech3ToolDef g_idTech3Tools[] = {
-	{ "Q3Map2++", "q3map2", "q3map2.x86_64", "Primary id Tech 3 map compiler (BSP/VIS/LIGHT stages)." },
-	{ "QData3++", "qdata3", "qdata3.x86_64", "Asset compile pipeline for models/sprites and game data." },
-	{ "Q2Map++", "q2map", "q2map.x86_64", "Legacy Quake II style map compile utility." },
-	{ "MBSPC++", "mbspc", "mbspc.x86_64", "Bot navigation compiler for BSP maps." },
-};
 
 QStringList IdTech3Tool_candidateNames( const IdTech3ToolDef& tool ){
 	QStringList names;
@@ -1661,6 +1646,100 @@ QString IdTech3Tool_executablePath( const IdTech3ToolDef& tool ){
 	return {};
 }
 
+
+
+void Layout_setStyleAndRequestRestart( MainFrame::EViewStyle style, const char* name ){
+	if ( g_Layout_viewStyle.m_latched == style ) {
+		return;
+	}
+
+	g_Layout_viewStyle.import( style );
+	Preferences_Save();
+
+	const auto message = StringStream( name, " layout will apply after restart.\n\nRestart now?" );
+	if ( QMessageBox::question( MainFrame_getWindow(), "Restart is required", message.c_str(), QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) == QMessageBox::Yes ) {
+		Radiant_Restart();
+	}
+}
+
+void Layout_setHammerFourPane(){
+	Layout_setStyleAndRequestRestart( MainFrame::eSplit, "4-pane" );
+}
+
+void Lua_openScript( const CopiedString& scriptPath, const char* title, bool externalEditor ){
+	if ( scriptPath.empty() ) {
+		globalWarningStream() << "Lua script path is empty for " << SingleQuoted( title ) << '\n';
+		return;
+	}
+	DoShaderView( scriptPath.c_str(), title, externalEditor );
+}
+
+void Lua_editProps(){
+	Lua_openScript( g_luaScriptProps, "Lua Props", false );
+}
+void Lua_editEntities(){
+	Lua_openScript( g_luaScriptEntities, "Lua Entities", false );
+}
+void Lua_editItems(){
+	Lua_openScript( g_luaScriptItems, "Lua Items", false );
+}
+void Experimental_togglePropertiesDock(){
+	Experimental_togglePropertiesDock_impl();
+}
+void Experimental_togglePreviewDock(){
+	Experimental_togglePreviewDock_impl();
+}
+void Experimental_toggleAssetsDock(){
+	Experimental_toggleAssetsDock_impl();
+}
+void Experimental_toggleHistoryDock(){
+	Experimental_toggleHistoryDock_impl();
+}
+void Experimental_toggleUSDDock(){
+	Experimental_toggleUSDDock_impl();
+}
+void Experimental_importUSDStructure(){
+	Experimental_importUSDStructure_impl();
+}
+void Lua_editMain(){
+	Lua_openScript( g_luaScriptMain, "Lua Main", false );
+}
+void Lua_editObjectives(){
+	Lua_openScript( g_luaScriptObjectives, "Lua Objectives", false );
+}
+void Lua_editPropsExternal(){
+	Lua_openScript( g_luaScriptProps, "Lua Props", true );
+}
+
+QAction* create_highlighted_view_menu_item( QMenu* menu, const char* mnemonic, const char* commandName ){
+	auto* commandAction = create_menu_item_with_mnemonic( menu, mnemonic, commandName );
+	menu->removeAction( commandAction );
+
+	auto* highlightedAction = new QWidgetAction( menu );
+	auto* button = new QPushButton( mnemonic, menu );
+	button->setFlat( true );
+	button->setStyleSheet(
+		"QPushButton { color: #35ff6b; background: transparent; border: 0; text-align: left; padding: 4px 26px 4px 24px; }"
+		"QPushButton:hover { background: rgba( 53, 255, 107, 0.18 ); }"
+	);
+	button->setSizePolicy( QSizePolicy::Expanding, QSizePolicy::Preferred );
+	highlightedAction->setDefaultWidget( button );
+	QObject::connect( button, &QPushButton::clicked, menu, [menu, commandAction](){
+		commandAction->trigger();
+		menu->hide();
+	} );
+	menu->addAction( highlightedAction );
+	return commandAction;
+}
+
+IdTech3ToolDef g_idTech3Tools[] = {
+	{ "Q3Map2++", "q3map2", "q3map2.x86_64", "Primary id Tech 3 map compiler (BSP/VIS/LIGHT stages)." },
+	{ "QData3++", "qdata3", "qdata3.x86_64", "Asset compile pipeline for models/sprites and game data." },
+	{ "Q2Map++", "q2map", "q2map.x86_64", "Legacy Quake II style map compile utility." },
+	{ "MBSPC++", "mbspc", "mbspc.x86_64", "Bot navigation compiler for BSP maps." },
+};
+
+
 void IdTech3Tool_copyHelpCommand( const IdTech3ToolDef& tool ){
 	const auto executable = IdTech3Tool_executablePath( tool );
 	if ( executable.isEmpty() ) {
@@ -1676,11 +1755,11 @@ void IdTech3Tool_runHelp( const IdTech3ToolDef& tool ){
 	const auto executable = IdTech3Tool_executablePath( tool );
 	if ( executable.isEmpty() ) {
 		QMessageBox::warning( MainFrame_getWindow(), "Tool not found",
-		                      StringStream( "Could not find ", tool.name, " executable.\nSearched install directories and system PATH." ).c_str() );
+		                      StringStream( "Could not find ", tool.name, " executable.\\nSearched install directories and system PATH." ).c_str() );
 		return;
 	}
 	if ( !QProcess::startDetached( executable, { "--help" }, QFileInfo( executable ).absolutePath() ) ) {
-		QMessageBox::warning( MainFrame_getWindow(), "Launch failed", StringStream( "Failed to start:\n", executable.toUtf8().constData() ).c_str() );
+		QMessageBox::warning( MainFrame_getWindow(), "Launch failed", StringStream( "Failed to start:\\n", executable.toUtf8().constData() ).c_str() );
 		return;
 	}
 	Sys_Status( StringStream( "Launched ", tool.name, " --help" ).c_str() );
@@ -1811,74 +1890,6 @@ void IdTech3Tool_openHubDialog(){
 	QObject::connect( closeButtons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject );
 
 	dialog.exec();
-}
-
-
-void Layout_setStyleAndRequestRestart( MainFrame::EViewStyle style, const char* name ){
-	if ( g_Layout_viewStyle.m_latched == style ) {
-		return;
-	}
-
-	g_Layout_viewStyle.import( style );
-	Preferences_Save();
-
-	const auto message = StringStream( name, " layout will apply after restart.\n\nRestart now?" );
-	if ( QMessageBox::question( MainFrame_getWindow(), "Restart is required", message.c_str(), QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) == QMessageBox::Yes ) {
-		Radiant_Restart();
-	}
-}
-
-void Layout_setHammerFourPane(){
-	Layout_setStyleAndRequestRestart( MainFrame::eSplit, "4-pane" );
-}
-
-void Lua_openScript( const CopiedString& scriptPath, const char* title, bool externalEditor ){
-	if ( scriptPath.empty() ) {
-		globalWarningStream() << "Lua script path is empty for " << SingleQuoted( title ) << '\n';
-		return;
-	}
-	DoShaderView( scriptPath.c_str(), title, externalEditor );
-}
-
-void Lua_editProps(){
-	Lua_openScript( g_luaScriptProps, "Lua Props", false );
-}
-void Lua_editEntities(){
-	Lua_openScript( g_luaScriptEntities, "Lua Entities", false );
-}
-void Lua_editItems(){
-	Lua_openScript( g_luaScriptItems, "Lua Items", false );
-}
-void Lua_editMain(){
-	Lua_openScript( g_luaScriptMain, "Lua Main", false );
-}
-void Lua_editObjectives(){
-	Lua_openScript( g_luaScriptObjectives, "Lua Objectives", false );
-}
-void Lua_editPropsExternal(){
-	Lua_openScript( g_luaScriptProps, "Lua Props", true );
-}
-
-QAction* create_highlighted_view_menu_item( QMenu* menu, const char* mnemonic, const char* commandName ){
-	auto* commandAction = create_menu_item_with_mnemonic( menu, mnemonic, commandName );
-	menu->removeAction( commandAction );
-
-	auto* highlightedAction = new QWidgetAction( menu );
-	auto* button = new QPushButton( mnemonic, menu );
-	button->setFlat( true );
-	button->setStyleSheet(
-		"QPushButton { color: #35ff6b; background: transparent; border: 0; text-align: left; padding: 4px 26px 4px 24px; }"
-		"QPushButton:hover { background: rgba( 53, 255, 107, 0.18 ); }"
-	);
-	button->setSizePolicy( QSizePolicy::Expanding, QSizePolicy::Preferred );
-	highlightedAction->setDefaultWidget( button );
-	QObject::connect( button, &QPushButton::clicked, menu, [menu, commandAction](){
-		commandAction->trigger();
-		menu->hide();
-	} );
-	menu->addAction( highlightedAction );
-	return commandAction;
-}
 }
 
 void create_add_menu( QMenuBar *menubar ){
@@ -3109,88 +3120,7 @@ void FocusAllViews(){
 #include "stringio.h"
 
 void MainFrame_Construct(){
-	GlobalCommands_insert( "OpenManual", makeCallbackF( OpenHelpURL ), QKeySequence( "F1" ) );
-
-	GlobalCommands_insert( "RefreshReferences", makeCallbackF( RefreshReferences ) );
-	GlobalCommands_insert( "CheckForUpdate", makeCallbackF( CheckForUpdate ) );
-	GlobalCommands_insert( "Exit", makeCallbackF( Exit ) );
-	GlobalCommands_insert( "AddEntityByName", makeCallbackF( Add_openEntityDialog ) );
-	GlobalCommands_insert( "AddLight", makeCallbackF( Add_createLight ) );
-	GlobalCommands_insert( "AddInfoPlayerStart", makeCallbackF( Add_createInfoPlayerStart ) );
-	GlobalCommands_insert( "AddInfoPlayerDeathmatch", makeCallbackF( Add_createInfoPlayerDeathmatch ) );
-	GlobalCommands_insert( "AddMiscModel", makeCallbackF( Add_createMiscModel ) );
-	GlobalCommands_insert( "LayoutHammerFourPane", makeCallbackF( Layout_setHammerFourPane ) );
-	GlobalCommands_insert( "OpenIdTech3ToolCenter", makeCallbackF( IdTech3Tool_openHubDialog ), QKeySequence( "Ctrl+Alt+T" ) );
-	GlobalCommands_insert( "OpenAudioWorkbench", makeCallbackF( AudioWorkbench_open ), QKeySequence( "Ctrl+Alt+M" ) );
-	GlobalCommands_insert( "OpenCinematicPlayer", makeCallbackF( VideoWorkbench_open ), QKeySequence( "Ctrl+Alt+V" ) );
-	GlobalCommands_insert( "OpenSpreadsheetWorkbench", makeCallbackF( Spreadsheet_open ), QKeySequence( "Ctrl+Alt+E" ) );
-	GlobalCommands_insert( "OpenAudioPreview", makeCallbackF( AudioWorkbench_open ) ); // backward-compatible command name
-	GlobalCommands_insert( "ToolQ3Map2Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[0] ); } ) );
-	GlobalCommands_insert( "ToolQData3Help", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[1] ); } ) );
-	GlobalCommands_insert( "ToolQ2MapHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[2] ); } ) );
-	GlobalCommands_insert( "ToolMBSPCHelp", makeCallbackF( +[](){ IdTech3Tool_runHelp( g_idTech3Tools[3] ); } ) );
-	GlobalCommands_insert( "LuaEditProps", makeCallbackF( Lua_editProps ) );
-	GlobalCommands_insert( "LuaEditEntities", makeCallbackF( Lua_editEntities ) );
-	GlobalCommands_insert( "LuaEditItems", makeCallbackF( Lua_editItems ) );
-	GlobalCommands_insert( "LuaEditMain", makeCallbackF( Lua_editMain ) );
-	GlobalCommands_insert( "LuaEditObjectives", makeCallbackF( Lua_editObjectives ) );
-	GlobalCommands_insert( "LuaEditPropsExternal", makeCallbackF( Lua_editPropsExternal ) );
-	GlobalCommands_insert( "CameraStoreBookmark1", makeCallbackF( +[](){ CameraBookmark_store( 0 ); } ), QKeySequence( "Ctrl+1" ) );
-	GlobalCommands_insert( "CameraStoreBookmark2", makeCallbackF( +[](){ CameraBookmark_store( 1 ); } ), QKeySequence( "Ctrl+2" ) );
-	GlobalCommands_insert( "CameraStoreBookmark3", makeCallbackF( +[](){ CameraBookmark_store( 2 ); } ), QKeySequence( "Ctrl+3" ) );
-	GlobalCommands_insert( "CameraStoreBookmark4", makeCallbackF( +[](){ CameraBookmark_store( 3 ); } ), QKeySequence( "Ctrl+4" ) );
-	GlobalCommands_insert( "CameraStoreBookmark5", makeCallbackF( +[](){ CameraBookmark_store( 4 ); } ), QKeySequence( "Ctrl+5" ) );
-	GlobalCommands_insert( "CameraRecallBookmark1", makeCallbackF( +[](){ CameraBookmark_recall( 0 ); } ), QKeySequence( "Shift+1" ) );
-	GlobalCommands_insert( "CameraRecallBookmark2", makeCallbackF( +[](){ CameraBookmark_recall( 1 ); } ), QKeySequence( "Shift+2" ) );
-	GlobalCommands_insert( "CameraRecallBookmark3", makeCallbackF( +[](){ CameraBookmark_recall( 2 ); } ), QKeySequence( "Shift+3" ) );
-	GlobalCommands_insert( "CameraRecallBookmark4", makeCallbackF( +[](){ CameraBookmark_recall( 3 ); } ), QKeySequence( "Shift+4" ) );
-	GlobalCommands_insert( "CameraRecallBookmark5", makeCallbackF( +[](){ CameraBookmark_recall( 4 ); } ), QKeySequence( "Shift+5" ) );
-
-	GlobalCommands_insert( "Shortcuts", makeCallbackF( DoCommandListDlg ),
-	                       g_Layout_expiramentalFeatures.m_value ? QKeySequence( "Ctrl+Alt+P" ) : QKeySequence( "Ctrl+Shift+P" ) );
-	GlobalCommands_insert( "Preferences", makeCallbackF( PreferencesDialog_showDialog ), QKeySequence( "P" ) );
-	if( g_Layout_expiramentalFeatures.m_value ){
-		GlobalCommands_insert( "FrameSelection", makeCallbackF( FocusAllViews ), QKeySequence( "F" ) );
-	}
-
-	GlobalCommands_insert( "ToggleConsole", makeCallbackF( Console_ToggleShow ), QKeySequence( "O" ) );
-	GlobalCommands_insert( "ToggleEntityInspector", makeCallbackF( EntityInspector_ToggleShow ), QKeySequence( "N" ) );
-	GlobalCommands_insert( "ToggleModelBrowser", makeCallbackF( ModelBrowser_ToggleShow ), QKeySequence( "/" ) );
-	GlobalCommands_insert( "ToggleLayersBrowser", makeCallbackF( LayersBrowser_ToggleShow ), QKeySequence( "L" ) );
-	GlobalCommands_insert( "ToggleEntityList", makeCallbackF( EntityList_toggleShown ), QKeySequence( "Shift+L" ) );
-	GlobalCommands_insert( "ToggleExperimentalProperties", makeCallbackF( Experimental_togglePropertiesDock ) );
-	GlobalCommands_insert( "ToggleExperimentalPreview", makeCallbackF( Experimental_togglePreviewDock ) );
-	GlobalCommands_insert( "ToggleExperimentalAssets", makeCallbackF( Experimental_toggleAssetsDock ) );
-	GlobalCommands_insert( "ToggleExperimentalHistory", makeCallbackF( Experimental_toggleHistoryDock ) );
-	GlobalCommands_insert( "ToggleExperimentalUSD", makeCallbackF( Experimental_toggleUSDDock ) );
-	GlobalCommands_insert( "ImportUSDStructure", makeCallbackF( Experimental_importUSDStructure ) );
-
-	Select_registerCommands();
-	Layers_registerCommands();
-
-	Tools_registerCommands();
-
-	GlobalCommands_insert( "BuildMenuCustomize", makeCallbackF( DoBuildMenu ),
-	                       g_Layout_expiramentalFeatures.m_value ? QKeySequence( "Ctrl+Shift+P" ) : QKeySequence() );
-	GlobalCommands_insert( "Build_runRecentExecutedBuild", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "F5" ) );
-	if( g_Layout_expiramentalFeatures.m_value ){
-		GlobalCommands_insert( "Build_runRecentExecutedBuildCtrlP", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "Ctrl+P" ) );
-		GlobalCommands_insert( "Build_runRecentExecutedBuildCtrlR", makeCallbackF( Build_runRecentExecutedBuild ), QKeySequence( "Ctrl+R" ) );
-	}
-
-	GlobalCommands_insert( "OpenGLFont", makeCallbackF( OpenGLFont_select ) );
-
-	Colors_registerCommands();
-
-	GlobalCommands_insert( "Fullscreen", makeCallbackF( MainFrame_toggleFullscreen ), QKeySequence( "F11" ) );
-	GlobalCommands_insert( "MaximizeView", makeCallbackF( Maximize_View ), QKeySequence( "F12" ) );
-
-	CSG_registerCommands();
-
-	Grid_registerCommands();
-
-	Patch_registerCommands();
-	XYShow_registerCommands();
+	MainFrame_registerCommands();
 
 	GlobalPreferenceSystem().registerPreference( "DetachableMenus", makeBoolStringImportCallback( LatchedAssignCaller( g_Layout_enableDetachableMenus ) ), BoolExportStringCaller( g_Layout_enableDetachableMenus.m_latched ) );
 	GlobalPreferenceSystem().registerPreference( "QE4StyleWindows", makeIntStringImportCallback( LatchedAssignCaller( g_Layout_viewStyle ) ), IntExportStringCaller( g_Layout_viewStyle.m_latched ) );
