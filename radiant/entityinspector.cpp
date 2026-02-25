@@ -29,6 +29,10 @@
 #include "iselection.h"
 #include "iundo.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 
@@ -46,6 +50,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QToolButton>
+#include <QSlider>
+#include <QAbstractSpinBox>
 #include <QKeyEvent>
 #include <QButtonGroup>
 #include <QToolTip>
@@ -374,6 +380,169 @@ public:
 	}
 };
 
+
+namespace
+{
+	struct FogSliderSpec
+	{
+		const char* key;
+		double minimum;
+		double maximum;
+		double defaultValue;
+		int decimals;
+	};
+
+	constexpr FogSliderSpec g_fogSliderSpecs[] = {
+		{ "fog_density", 0.0, 1.0, 0.35, 3 },
+		{ "fog_maxdistance", 0.0, 16384.0, 4096.0, 0 },
+		{ "fog_localheight", 0.0, 2.0, 0.4, 3 },
+		{ "fog_contrast", -1.0, 1.0, 0.6, 3 },
+		{ "fog_wind_speed", 0.0, 2048.0, 0.0, 1 },
+		{ "fog_wind_direction", 0.0, 360.0, 0.0, 0 },
+		{ "fog_distortion_amount", 0.0, 1.0, 0.0, 3 },
+		{ "fog_distortion_size", 0.0, 1024.0, 64.0, 0 },
+	};
+
+	const FogSliderSpec* FogSliderSpec_forKey( const char* key ){
+		for ( const FogSliderSpec& spec : g_fogSliderSpecs )
+		{
+			if ( string_equal( spec.key, key ) ) {
+				return &spec;
+			}
+		}
+		return 0;
+	}
+
+	class FogSliderAttribute final : public EntityAttribute
+	{
+		static constexpr int c_resolution = 1024;
+		const CopiedString m_key;
+		NonModalSpinner* m_spin;
+		QSlider* m_slider;
+		QWidget* m_widget;
+		double m_min;
+		double m_max;
+		double m_default;
+		int m_decimals;
+		bool m_ignoreSlider;
+		bool m_ignoreSpin;
+
+		static double clampValue( double value, double minimum, double maximum ){
+			return std::clamp( value, minimum, maximum );
+		}
+
+		int sliderValueFor( double value ) const {
+			const double normalized = ( value - m_min ) / ( m_max - m_min );
+			const int sliderValue = int( std::round( normalized * c_resolution ) );
+			return std::clamp( sliderValue, 0, c_resolution );
+		}
+
+		double valueForSlider( int sliderValue ) const {
+			const double normalized = double( sliderValue ) / c_resolution;
+			return m_min + normalized * ( m_max - m_min );
+		}
+
+		void applyValue( double value ){
+			char buffer[64];
+			const int decimals = std::max( 0, m_decimals );
+			std::snprintf( buffer, sizeof( buffer ), "%.*f", decimals, value );
+			Scene_EntitySetKeyValue_Selected_Undoable( m_key.c_str(), buffer );
+		}
+
+		void updateFromValue( double value ){
+			value = clampValue( value, m_min, m_max );
+			m_ignoreSpin = true;
+			m_spin->setValue( value );
+			m_ignoreSpin = false;
+			const int sliderValue = sliderValueFor( value );
+			if ( m_slider->value() != sliderValue ) {
+				m_ignoreSlider = true;
+				m_slider->setValue( sliderValue );
+				m_ignoreSlider = false;
+			}
+		}
+
+		void onSliderValueChanged( int sliderValue ){
+			if ( m_ignoreSlider ) {
+				return;
+			}
+			const double value = valueForSlider( sliderValue );
+			m_ignoreSpin = true;
+			m_spin->setValue( value );
+			m_ignoreSpin = false;
+			applyValue( value );
+		}
+
+		void onSpinValueChanged( double value ){
+			if ( m_ignoreSpin ) {
+				return;
+			}
+			const int sliderValue = sliderValueFor( value );
+			m_ignoreSlider = true;
+			m_slider->setValue( sliderValue );
+			m_ignoreSlider = false;
+		}
+
+		double parseKeyValue() const {
+			const char* text = SelectedEntity_getValueForKey( m_key.c_str() );
+			if ( string_empty( text ) ) {
+				return m_default;
+			}
+			return clampValue( atof( text ), m_min, m_max );
+		}
+
+	public:
+		FogSliderAttribute( const char* key, double minimum, double maximum, double defaultValue, int decimals ) :
+			m_key( key ),
+			m_spin( new NonModalSpinner ),
+			m_slider( new QSlider( Qt::Horizontal ) ),
+			m_widget( new QWidget ),
+			m_min( minimum ),
+			m_max( maximum ),
+			m_default( defaultValue ),
+			m_decimals( decimals ),
+			m_ignoreSlider( false ),
+			m_ignoreSpin( false )
+		{
+			auto *layout = new QHBoxLayout( m_widget );
+			layout->setContentsMargins( 0, 0, 0, 0 );
+			layout->setSpacing( 4 );
+			layout->addWidget( m_slider );
+			layout->addWidget( m_spin );
+
+			m_slider->setRange( 0, c_resolution );
+			m_slider->setPageStep( c_resolution / 10 );
+			m_slider->setSingleStep( 1 );
+			m_spin->setRange( m_min, m_max );
+			m_spin->setDecimals( std::max( 0, m_decimals ) );
+			m_spin->setButtonSymbols( QAbstractSpinBox::NoButtons );
+			m_spin->setCallbacks( ApplyCaller( *this ), UpdateCaller( *this ) );
+
+			QObject::connect( m_slider, &QSlider::valueChanged, [this]( int sliderValue ){ onSliderValueChanged( sliderValue ); } );
+			QObject::connect( m_spin, qOverload<double>( &NonModalSpinner::valueChanged ), [this]( double value ){ onSpinValueChanged( value ); } );
+
+			updateFromValue( m_default );
+		}
+
+		~FogSliderAttribute() override {
+			delete m_widget;
+		}
+
+		QWidget* getWidget() const override {
+			return m_widget;
+		}
+
+		void apply() override {
+			applyValue( m_spin->value() );
+		}
+		typedef MemberCaller<FogSliderAttribute, void(), &FogSliderAttribute::apply> ApplyCaller;
+
+		void update() override {
+			updateFromValue( parseKeyValue() );
+		}
+		typedef MemberCaller<FogSliderAttribute, void(), &FogSliderAttribute::update> UpdateCaller;
+	};
+}
 
 inline double angle_normalised( double angle ){
 	return float_mod( angle, 360.0 );
@@ -988,6 +1157,17 @@ void EntityInspector_setEntityClass( EntityClass *eclass ){
 
 		for ( const EntityClassAttributePair &pair : eclass->m_attributes )
 		{
+			const char* keyname = pair.first.c_str();
+			const bool isFogEntity = string_equal( eclass->name(), "func_volumetricfog" );
+
+			if ( isFogEntity ) {
+				if ( const FogSliderSpec* spec = FogSliderSpec_forKey( keyname ) ) {
+					g_entityAttributes.push_back( new FogSliderAttribute( keyname, spec->minimum, spec->maximum, spec->defaultValue, spec->decimals ) );
+					EntityInspector_appendAttribute( pair, *g_entityAttributes.back() );
+					continue;
+				}
+			}
+
 			EntityAttribute* attribute = GlobalEntityAttributeFactory::instance().create( pair.second.m_type.c_str(), pair.first.c_str() );
 			if ( attribute != 0 ) {
 				g_entityAttributes.push_back( attribute );

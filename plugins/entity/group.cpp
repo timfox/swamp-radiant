@@ -46,6 +46,70 @@
 #include "namekeys.h"
 
 #include "entity.h"
+#include "math/aabb.h"
+#include "math/vector.h"
+#include "string/string.h"
+
+#include <algorithm>
+#include <cstdlib>
+
+namespace
+{
+	inline Shader* FogPreviewShader(){
+		static Shader* shader = GlobalShaderCache().capture( "$FOG_PREVIEW" );
+		return shader;
+	}
+
+	class FogVolumeRenderable : public OpenGLRenderable
+	{
+		const AABB& m_aabb;
+		const Vector4 m_colour;
+	public:
+		FogVolumeRenderable( const AABB& aabb, const Vector4& colour ) : m_aabb( aabb ), m_colour( colour ){
+		}
+		void render( RenderStateFlags ) const override {
+			gl().glColor4fv( vector4_to_array( m_colour ) );
+			aabb_draw_flatshade( m_aabb );
+			gl().glColor4f( 1, 1, 1, 1 );
+		}
+	};
+
+	double parseFogKeyDouble( const EntityKeyValues& entity, const char* key, double fallback ){
+		const char* value = entity.getKeyValue( key );
+		if ( string_empty( value ) ) {
+			return fallback;
+		}
+		return std::atof( value );
+	}
+
+	Vector4 fogPreviewColor( const EntityKeyValues& entity ){
+		Vector3 color( 1, 1, 1 );
+		string_parse_vector3( entity.getKeyValue( "fog_color" ), color );
+		double density = parseFogKeyDouble( entity, "fog_density", 0.35 );
+		double contrast = parseFogKeyDouble( entity, "fog_contrast", 0.0 );
+		double brightness = std::clamp( 1.0 + contrast, 0.0, 2.0 );
+
+		constexpr double minComponent = 0.0;
+		constexpr double maxComponent = 1.0;
+		color[0] = float( std::clamp( double( color[0] ) * brightness, minComponent, maxComponent ) );
+		color[1] = float( std::clamp( double( color[1] ) * brightness, minComponent, maxComponent ) );
+		color[2] = float( std::clamp( double( color[2] ) * brightness, minComponent, maxComponent ) );
+
+		const float alpha = float( std::clamp( density, 0.05, 0.9 ) );
+		return Vector4( color[0], color[1], color[2], alpha );
+	}
+
+	void renderFogVolumePreview( Renderer& renderer, const Matrix4& localToWorld, const AABB& bounds, const Vector4& colour ){
+		if ( !extents_valid( bounds.extents[0] ) || !extents_valid( bounds.extents[1] ) || !extents_valid( bounds.extents[2] ) ) {
+			return;
+		}
+		FogVolumeRenderable preview( bounds, colour );
+		renderer.PushState();
+		renderer.SetState( FogPreviewShader(), Renderer::eFullMaterials );
+		renderer.addRenderable( preview, localToWorld );
+		renderer.PopState();
+	}
+}
 
 /// The "origin" key directly controls the entity's local-to-parent transform.
 
@@ -187,6 +251,12 @@ public:
 				}
 			}
 		}
+
+		if ( string_equal( m_entity.getClassName(), "func_volumetricfog" )
+		  && ( selected || childSelected ) )
+		{
+			renderFogVolumePreview( renderer, localToWorld, childBounds, fogPreviewColor( m_entity ) );
+		}
 	}
 
 	void renderWireframe( Renderer& renderer, const VolumeTest& volume, const Matrix4& localToWorld, bool selected, bool childSelected, const AABB& childBounds ) const {
@@ -212,6 +282,11 @@ public:
 					renderer.addRenderable( m_arrow, g_matrix4_identity );
 				}
 			}
+		}
+		if ( string_equal( m_entity.getClassName(), "func_volumetricfog" )
+		  && ( selected || childSelected ) )
+		{
+			renderFogVolumePreview( renderer, localToWorld, childBounds, fogPreviewColor( m_entity ) );
 		}
 	}
 

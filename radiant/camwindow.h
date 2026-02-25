@@ -39,11 +39,13 @@ void CamWnd_setParent( CamWnd& camwnd, QWidget* parent );
 void CamWnd_Shown_Construct( QWidget* parent );
 
 void GlobalCamera_setCamWnd( CamWnd& camwnd );
+CamWnd* GlobalCamera_getCamWnd();
 
 void CamWnd_constructToolbar( class QToolBar* toolbar );
 void CamWnd_registerShortcuts();
 
 void GlobalCamera_Benchmark();
+void ShowNavMeshToggle();
 
 const Vector3& Camera_getOrigin( CamWnd& camwnd );
 void Camera_setOrigin( CamWnd& camwnd, const Vector3& origin );

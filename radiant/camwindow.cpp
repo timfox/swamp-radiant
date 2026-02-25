@@ -55,6 +55,7 @@
 #include "xywindow.h"
 #include "windowobservers.h"
 #include "renderstate.h"
+#include "navmesh_ui.h"
 
 #include "timer.h"
 
@@ -1046,6 +1047,10 @@ void GlobalCamera_setCamWnd( CamWnd& camwnd ){
 	g_camwnd = &camwnd;
 }
 
+CamWnd* GlobalCamera_getCamWnd(){
+	return g_camwnd;
+}
+
 
 QWidget* CamWnd_getWidget( CamWnd& camwnd ){
 	return camwnd.m_gl_widget;
@@ -1926,6 +1931,12 @@ void ShowSize3dToggle(){
 	}
 }
 
+ToggleItem g_show_navmesh( BoolExportCaller( g_navmeshOverlayEnabled ) );
+void ShowNavMeshToggle(){
+	NavMeshOverlay_toggle();
+	g_show_navmesh.update();
+}
+
 void CamWnd::Cam_Draw(){
 //		globalOutputStream() << "Cam_Draw()\n";
 
@@ -2041,6 +2052,7 @@ void CamWnd::Cam_Draw(){
 		                      m_view.getViewer() );
 
 		Scene_Render( renderer, m_view );
+		NavMeshOverlay_render( renderer );
 
 		if( g_camwindow_globals_private.m_bShowWorkzone && GlobalSelectionSystem().countSelected() != 0 && GlobalSelectionSystem().ManipulatorMode() != SelectionSystem::eUV ){
 			m_draw_workzone.render( renderer, m_state_workzone );
@@ -2543,6 +2555,7 @@ void CamWnd_Construct(){
 	GlobalPreferenceSystem().registerPreference( "ShowStats", BoolImportStringCaller( g_camwindow_globals.m_showStats ), BoolExportStringCaller( g_camwindow_globals.m_showStats ) );
 	GlobalPreferenceSystem().registerPreference( "ShowWorkzone3d", BoolImportStringCaller( g_camwindow_globals_private.m_bShowWorkzone ), BoolExportStringCaller( g_camwindow_globals_private.m_bShowWorkzone ) );
 	GlobalPreferenceSystem().registerPreference( "ShowSize3d", BoolImportStringCaller( g_camwindow_globals_private.m_bShowSize ), BoolExportStringCaller( g_camwindow_globals_private.m_bShowSize ) );
+	GlobalPreferenceSystem().registerPreference( "ShowNavMeshOverlay", BoolImportStringCaller( g_navmeshOverlayEnabled ), BoolExportStringCaller( g_navmeshOverlayEnabled ) );
 	GlobalPreferenceSystem().registerPreference( "CamMoveSpeed", IntImportStringCaller( g_camwindow_globals_private.m_nMoveSpeed ), IntExportStringCaller( g_camwindow_globals_private.m_nMoveSpeed ) );
 	GlobalPreferenceSystem().registerPreference( "CamMoveTimeToMaxSpeed", IntImportStringCaller( g_camwindow_globals_private.m_time_toMaxSpeed ), IntExportStringCaller( g_camwindow_globals_private.m_time_toMaxSpeed ) );
 	GlobalPreferenceSystem().registerPreference( "ScrollMoveSpeed", IntImportStringCaller( g_camwindow_globals_private.m_nScrollMoveSpeed ), IntExportStringCaller( g_camwindow_globals_private.m_nScrollMoveSpeed ) );

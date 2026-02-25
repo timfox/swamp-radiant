@@ -20,6 +20,9 @@
 #include "video_workbench.h"
 #include "spreadsheet_workbench.h"
 #include "referencecache.h"
+#include "camwindow.h"
+#include "navmesh_ui.h"
+#include "stringio.h"
 
 #include "generic/callback.h"
 
@@ -105,6 +108,8 @@ void MainFrame_registerCommands(){
 	CSG_registerCommands();
 
 	Grid_registerCommands();
+	GlobalCommands_insert( "NavMesh_Rebuild", makeCallbackF( NavMesh_rebuild ), QKeySequence( "Ctrl+Shift+R" ) );
+	GlobalToggles_insert( "NavMeshOverlay", makeCallbackF( ShowNavMeshToggle ), BoolExportCaller( g_navmeshOverlayEnabled ), QKeySequence( "Ctrl+Shift+M" ) );
 
 	Patch_registerCommands();
 	XYShow_registerCommands();

@@ -879,9 +879,47 @@ libwebplib.$(A): CPPFLAGS_EXTRA := -Ilibs
 libwebplib.$(A): \
 	libs/webplib/webplib.o \
 
+librecast.$(A): CPPFLAGS_EXTRA := -Ilibs/recast/Recast/Include -Ilibs/recast/Detour/Include -Ilibs/recast/DetourCrowd/Include -Ilibs/recast/DetourTileCache/Include
+librecast.$(A): \
+	libs/recast/Recast/Source/Recast.o \
+	libs/recast/Recast/Source/RecastAlloc.o \
+	libs/recast/Recast/Source/RecastArea.o \
+	libs/recast/Recast/Source/RecastAssert.o \
+	libs/recast/Recast/Source/RecastContour.o \
+	libs/recast/Recast/Source/RecastFilter.o \
+	libs/recast/Recast/Source/RecastLayers.o \
+	libs/recast/Recast/Source/RecastMesh.o \
+	libs/recast/Recast/Source/RecastMeshDetail.o \
+	libs/recast/Recast/Source/RecastRasterization.o \
+	libs/recast/Recast/Source/RecastRegion.o \
+
+libdetour.$(A): CPPFLAGS_EXTRA := -Ilibs/recast/Detour/Include -Ilibs/recast/Recast/Include
+libdetour.$(A): \
+	libs/recast/Detour/Source/DetourAlloc.o \
+	libs/recast/Detour/Source/DetourAssert.o \
+	libs/recast/Detour/Source/DetourCommon.o \
+	libs/recast/Detour/Source/DetourNavMesh.o \
+	libs/recast/Detour/Source/DetourNavMeshBuilder.o \
+	libs/recast/Detour/Source/DetourNavMeshQuery.o \
+	libs/recast/Detour/Source/DetourNode.o \
+
+libdetourcrowd.$(A): CPPFLAGS_EXTRA := -Ilibs/recast/DetourCrowd/Include -Ilibs/recast/Detour/Include -Ilibs/recast/Recast/Include
+libdetourcrowd.$(A): \
+	libs/recast/DetourCrowd/Source/DetourCrowd.o \
+	libs/recast/DetourCrowd/Source/DetourLocalBoundary.o \
+	libs/recast/DetourCrowd/Source/DetourObstacleAvoidance.o \
+	libs/recast/DetourCrowd/Source/DetourPathCorridor.o \
+	libs/recast/DetourCrowd/Source/DetourPathQueue.o \
+	libs/recast/DetourCrowd/Source/DetourProximityGrid.o \
+
+libdetourtilecache.$(A): CPPFLAGS_EXTRA := -Ilibs/recast/DetourTileCache/Include -Ilibs/recast/Detour/Include -Ilibs/recast/Recast/Include
+libdetourtilecache.$(A): \
+	libs/recast/DetourTileCache/Source/DetourTileCache.o \
+	libs/recast/DetourTileCache/Source/DetourTileCacheBuilder.o \
+
 $(INSTALLDIR)/radiant.$(EXE): LDFLAGS_EXTRA := $(MWINDOWS)
 $(INSTALLDIR)/radiant.$(EXE): LIBS_EXTRA := $(LIBS_GL) $(LIBS_DL) $(LIBS_XML) $(LIBS_GLIB) $(LIBS_QTWIDGETS) $(LIBS_QTSVG) $(LIBS_QTMULTIMEDIA) $(LIBS_QTMULTIMEDIAWIDGETS) $(LIBS_ZLIB)
-$(INSTALLDIR)/radiant.$(EXE): CPPFLAGS_EXTRA := $(CPPFLAGS_GL) $(CPPFLAGS_DL) $(CPPFLAGS_XML) $(CPPFLAGS_GLIB) $(CPPFLAGS_QTWIDGETS) $(CPPFLAGS_QTSVG) $(CPPFLAGS_QTMULTIMEDIA) $(CPPFLAGS_QTMULTIMEDIAWIDGETS) -Ilibs -Iinclude
+$(INSTALLDIR)/radiant.$(EXE): CPPFLAGS_EXTRA := $(CPPFLAGS_GL) $(CPPFLAGS_DL) $(CPPFLAGS_XML) $(CPPFLAGS_GLIB) $(CPPFLAGS_QTWIDGETS) $(CPPFLAGS_QTSVG) $(CPPFLAGS_QTMULTIMEDIA) $(CPPFLAGS_QTMULTIMEDIAWIDGETS) -Ilibs -Iinclude -Ilibs/recast/Recast/Include -Ilibs/recast/Detour/Include -Ilibs/recast/DetourCrowd/Include -Ilibs/recast/DetourTileCache/Include
 $(INSTALLDIR)/radiant.$(EXE): \
 	radiant/audio_workbench.o \
 	radiant/autosave.o \
@@ -927,6 +965,9 @@ $(INSTALLDIR)/radiant.$(EXE): \
 	radiant/mainframe_commands.o \
 	radiant/main.o \
 	radiant/map.o \
+	radiant/navmesh.o \
+	radiant/navmeshsystem.o \
+	radiant/navmesh_ui.o \
 	radiant/modelwindow.o \
 	radiant/mru.o \
 	radiant/nullmodel.o \
@@ -983,6 +1024,10 @@ $(INSTALLDIR)/radiant.$(EXE): \
 	libl_net.$(A) \
 	libquickhull.$(A) \
 	libxmllib.$(A) \
+	librecast.$(A) \
+	libdetour.$(A) \
+	libdetourcrowd.$(A) \
+	libdetourtilecache.$(A) \
 	$(if $(findstring Win32,$(OS)),icons/radiant.o,) \
 
 libfilematch.$(A): CPPFLAGS_EXTRA := -Ilibs
